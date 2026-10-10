@@ -2,7 +2,7 @@
   </div> <!-- Fechamento da ABA 1 (tab-files) -->
 
 
-  <!-- ABA 2: STATUS DO SISTEMA -->
+  <!-- ABA 2: SISTEMA E CONFIGURAÇÕES -->
   <div id="tab-status" class="tab-content">
     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:16px;">
       
@@ -123,85 +123,81 @@
         </div>
       </div>
 
-    </div>
-  </div>
+      <!-- Card: Configurações de Rede -->
+      <div class="card">
+        <div class="card-title">
+          <span>⚙️</span> <span data-i18n="config_title">Configurações de Rede</span>
+        </div>
+        
+        <p style="font-size:13px; color:var(--text-muted); margin-bottom:18px;" data-i18n="config_notice">
+          As alterações feitas aqui são salvas diretamente no arquivo <code>/sdcard/config.txt</code> do MicroSD. Ao reiniciar o console ou clicar no botão abaixo, a nova rede entrará em vigor automaticamente.
+        </p>
 
+        <form id="config-form" onsubmit="saveConfig(event)">
+          <!-- Seletor de Modo -->
+          <div style="margin-bottom:16px;">
+            <label style="display:block; font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:8px;" data-i18n="wifi_mode_title">
+              MODO DE OPERAÇÃO WI-FI
+            </label>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+              <label style="display:flex; align-items:center; gap:8px; padding:12px; background:#14151a; border:1px solid var(--border); border-radius:var(--radius-md); cursor:pointer;">
+                <input type="radio" name="wifi_mode" value="client" id="mode-client" checked onchange="toggleConfigMode()">
+                <div>
+                  <div style="font-size:13px; font-weight:600; color:#fff;" data-i18n="mode_client_title">Modo Cliente</div>
+                  <div style="font-size:11px; color:var(--text-muted);" data-i18n="mode_client_desc">Conectar no Wi-Fi de Casa</div>
+                </div>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; padding:12px; background:#14151a; border:1px solid var(--border); border-radius:var(--radius-md); cursor:pointer;">
+                <input type="radio" name="wifi_mode" value="ap" id="mode-ap" onchange="toggleConfigMode()">
+                <div>
+                  <div style="font-size:13px; font-weight:600; color:#fff;" data-i18n="mode_ap_title">Ponto de Acesso (AP)</div>
+                  <div style="font-size:11px; color:var(--text-muted);" data-i18n="mode_ap_desc">Rede Própria 'WirelessMC'</div>
+                </div>
+              </label>
+            </div>
+          </div>
 
-  <!-- ABA 3: CONFIGURAÇÕES DE REDE E SISTEMA -->
-  <div id="tab-config" class="tab-content">
-    <div class="card" style="max-width:650px; margin:0 auto;">
-      <div class="card-title">
-        <span>⚙️</span> <span data-i18n="config_title">Configurações & Rede</span>
+          <!-- Nome da Rede (SSID) -->
+          <div class="form-group" style="margin-bottom:16px;">
+            <label for="cfg-ssid" style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px; display:block;" data-i18n="cfg_ssid_label">
+              NOME DA REDE WI-FI (SSID)
+            </label>
+            <input type="text" id="cfg-ssid" class="form-control" required placeholder="ex: WirelessMC">
+          </div>
+
+          <!-- Senha da Rede -->
+          <div class="form-group" style="margin-bottom:20px;">
+            <label for="cfg-pass" style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px; display:block;" data-i18n="cfg_pass_label">
+              SENHA DO WI-FI
+            </label>
+            <div style="position:relative;">
+              <input type="password" id="cfg-pass" class="form-control" placeholder="Mínimo 8 caracteres" style="padding-right:45px;">
+              <button type="button" onclick="togglePassVisibility()" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px;">👁️</button>
+            </div>
+            <div id="pass-hint" style="font-size:11px; color:var(--text-muted); margin-top:4px;" data-i18n="pass_hint_client">
+              Para o modo Cliente, coloque a senha da sua rede doméstica.
+            </div>
+          </div>
+
+          <div id="config-alert" style="display:none; padding:12px; border-radius:var(--radius-md); font-size:13px; margin-bottom:16px;"></div>
+
+          <!-- Botões de Ação -->
+          <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <button type="submit" class="btn btn-blue" style="flex:1;">
+              <span>💾</span> <span data-i18n="btn_save_config">Salvar Configuração no SD</span>
+            </button>
+            <button type="button" class="btn btn-red" onclick="rebootOpenMC()">
+              <span>🔄</span> <span data-i18n="btn_reboot">Reiniciar OpenWirelessMC</span>
+            </button>
+          </div>
+        </form>
       </div>
-      
 
-      <p style="font-size:13px; color:var(--text-muted); margin-bottom:18px;" data-i18n="config_notice">
-        As alterações feitas aqui são salvas diretamente no arquivo <code>/sdcard/config.txt</code> do MicroSD. Ao reiniciar o console ou clicar no botão abaixo, a nova rede entrará em vigor automaticamente.
-      </p>
-
-      <form id="config-form" onsubmit="saveConfig(event)">
-        <!-- Seletor de Modo -->
-        <div style="margin-bottom:16px;">
-          <label style="display:block; font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:8px;" data-i18n="wifi_mode_title">
-            MODO DE OPERAÇÃO WI-FI
-          </label>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-            <label style="display:flex; align-items:center; gap:8px; padding:12px; background:#14151a; border:1px solid var(--border); border-radius:var(--radius-md); cursor:pointer;">
-              <input type="radio" name="wifi_mode" value="client" id="mode-client" checked onchange="toggleConfigMode()">
-              <div>
-                <div style="font-size:13px; font-weight:600; color:#fff;" data-i18n="mode_client_title">Modo Cliente</div>
-                <div style="font-size:11px; color:var(--text-muted);" data-i18n="mode_client_desc">Conectar no Wi-Fi de Casa</div>
-              </div>
-            </label>
-            <label style="display:flex; align-items:center; gap:8px; padding:12px; background:#14151a; border:1px solid var(--border); border-radius:var(--radius-md); cursor:pointer;">
-              <input type="radio" name="wifi_mode" value="ap" id="mode-ap" onchange="toggleConfigMode()">
-              <div>
-                <div style="font-size:13px; font-weight:600; color:#fff;" data-i18n="mode_ap_title">Ponto de Acesso (AP)</div>
-                <div style="font-size:11px; color:var(--text-muted);" data-i18n="mode_ap_desc">Rede Própria 'WirelessMC'</div>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <!-- Nome da Rede (SSID) -->
-        <div class="form-group" style="margin-bottom:16px;">
-          <label for="cfg-ssid" style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px; display:block;" data-i18n="cfg_ssid_label">
-            NOME DA REDE WI-FI (SSID)
-          </label>
-          <input type="text" id="cfg-ssid" class="form-control" required placeholder="ex: WirelessMC">
-        </div>
-
-        <!-- Senha da Rede -->
-        <div class="form-group" style="margin-bottom:20px;">
-          <label for="cfg-pass" style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px; display:block;" data-i18n="cfg_pass_label">
-            SENHA DO WI-FI
-          </label>
-          <div style="position:relative;">
-            <input type="password" id="cfg-pass" class="form-control" placeholder="Mínimo 8 caracteres" style="padding-right:45px;">
-            <button type="button" onclick="togglePassVisibility()" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px;">👁️</button>
-          </div>
-          <div id="pass-hint" style="font-size:11px; color:var(--text-muted); margin-top:4px;" data-i18n="pass_hint_client">
-            Para o modo Cliente, coloque a senha da sua rede doméstica.
-          </div>
-        </div>
-
-        <div id="config-alert" style="display:none; padding:12px; border-radius:var(--radius-md); font-size:13px; margin-bottom:16px;"></div>
-
-        <!-- Botões de Ação -->
-        <div style="display:flex; gap:12px; flex-wrap:wrap;">
-          <button type="submit" class="btn btn-blue" style="flex:1;">
-            <span>💾</span> <span data-i18n="btn_save_config">Salvar Configuração no SD</span>
-          </button>
-          <button type="button" class="btn btn-red" onclick="rebootOpenMC()">
-            <span>🔄</span> <span data-i18n="btn_reboot">Reiniciar OpenWirelessMC</span>
-          </button>
-        </div>
-      </form>
     </div>
   </div>
 
 
-  <!-- ABA 4: FAQ & GUIA COMPLETO -->
+  <!-- ABA 3: FAQ & GUIA COMPLETO -->
   <div id="tab-faq" class="tab-content">
     
     <div class="card">
@@ -267,10 +263,10 @@
       </ol>
     </div>
 
-  </div> <!-- Fechamento da ABA 4 (tab-faq) -->
+  </div> <!-- Fechamento da ABA 3 (tab-faq) -->
 
 
-  <!-- ABA 5: SOBRE & CRÉDITOS -->
+  <!-- ABA 4: SOBRE & CRÉDITOS -->
   <div id="tab-about" class="tab-content">
     <div class="card" style="max-width:750px; margin:0 auto;">
       <div class="card-title">
