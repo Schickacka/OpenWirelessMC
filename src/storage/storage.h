@@ -20,6 +20,8 @@ namespace openmc
     void Task_Write(void *params);
     bool LoadCardFromFile(char *filepath, void *destination);
     int WriteFile();
+    bool SwitchToGameID(const char *game_id_str);
+    bool CreateBlankFormattedCard(const char *filepath);
   } // storage
 } // openmc
 

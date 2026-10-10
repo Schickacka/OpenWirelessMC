@@ -76,6 +76,18 @@ namespace openmc
             //break; // break from inner loop
           }
         }
+        if (sio::memory_card::game_id_updated)
+        {
+          sio::memory_card::game_id_updated = false;
+          if (sio::memory_card::committed_to_storage == false)
+          {
+            WriteFile();
+            sio::memory_card::committed_to_storage = true;
+          }
+          ESP_LOGI(kLogPrefix, "PicoStation GameID detected: %s\n", (char *)sio::memory_card::game_id);
+          SwitchToGameID((char *)sio::memory_card::game_id);
+        }
+
         vTaskDelay(portTICK_PERIOD_MS);
       }
 
@@ -216,6 +228,91 @@ namespace openmc
       }
 
       return result;
+    }
+
+    bool CreateBlankFormattedCard(const char *filepath)
+    {
+      ESP_LOGI(kLogPrefix, "Creating new blank formatted memory card: %s\n", filepath);
+      FILE *f = fopen(filepath, "wb");
+      if (!f)
+      {
+        ESP_LOGE(kLogPrefix, "Failed to create new card file: %s\n", filepath);
+        return false;
+      }
+
+      uint8_t buffer[128];
+
+      // Frame 0: Header frame
+      memset(buffer, 0x00, 128);
+      buffer[0] = 'M'; // 0x4D
+      buffer[1] = 'C'; // 0x43
+      buffer[127] = 0x0E; // Checksum: 'M' ^ 'C'
+      fwrite(buffer, 1, 128, f);
+
+      // Frames 1 to 15: Directory entries for the 15 user blocks
+      for (int i = 1; i <= 15; i++)
+      {
+        memset(buffer, 0x00, 128);
+        buffer[0] = 0xA0; // 0xA0 = Free block
+        buffer[8] = 0xFF; // Next block = none (end of file)
+        buffer[9] = 0xFF;
+        buffer[127] = 0xA0; // Checksum: 0xA0 ^ 0xFF ^ 0xFF = 0xA0
+        fwrite(buffer, 1, 128, f);
+      }
+
+      // Frames 16 to 35: Broken block list (20 frames)
+      memset(buffer, 0xFF, 128);
+      for (int i = 16; i <= 35; i++)
+      {
+        fwrite(buffer, 1, 128, f);
+      }
+
+      // Frames 36 to 63: Unused (reserved, 28 frames)
+      memset(buffer, 0xFF, 128);
+      for (int i = 36; i <= 63; i++)
+      {
+        fwrite(buffer, 1, 128, f);
+      }
+
+      // Frames 64 to 1023: User data blocks (15 blocks * 64 frames = 960 frames)
+      memset(buffer, 0x00, 128);
+      for (int i = 64; i < 1024; i++)
+      {
+        fwrite(buffer, 1, 128, f);
+      }
+
+      fclose(f);
+      ESP_LOGI(kLogPrefix, "New formatted card created successfully!\n");
+      return true;
+    }
+
+    bool SwitchToGameID(const char *game_id_str)
+    {
+      if (!game_id_str || strlen(game_id_str) == 0)
+      {
+        return false;
+      }
+
+      char target_path[CONFIG_FATFS_MAX_LFN + 1];
+      snprintf(target_path, sizeof(target_path), "%s/%s.mc", base_path, game_id_str);
+
+      if (strcmp(loaded_file_path, target_path) == 0)
+      {
+        ESP_LOGI(kLogPrefix, "GameID %s is already loaded.\n", game_id_str);
+        return true;
+      }
+
+      FILE *check = fopen(target_path, "rb");
+      if (!check)
+      {
+        CreateBlankFormattedCard(target_path);
+      }
+      else
+      {
+        fclose(check);
+      }
+
+      return LoadCardFromFile(target_path, sio::memory_card::memory_card_ram);
     }
   } // storage
 } // openmc

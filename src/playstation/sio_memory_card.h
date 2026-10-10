@@ -67,6 +67,7 @@ namespace openmc
 
             extern uint8_t game_id[256];
             extern uint8_t game_id_length;
+            extern volatile bool game_id_updated;
 
             extern uint64_t volatile last_tick;
             extern uint64_t volatile last_write_tick;

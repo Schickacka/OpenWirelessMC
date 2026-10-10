@@ -69,18 +69,15 @@ namespace openmc
         gpio_set_direction(kPin_LED, GPIO_MODE_OUTPUT);
         gpio_set_level(kPin_LED, 0);
 
-        // Turn screen backlight off and delay init at power on
-        // To allow voltage levels to stabilize
-        gpio_set_direction(kOLEDPin_Backlight, GPIO_MODE_OUTPUT);
-
-        // Delay power on
-        // gpio_set_level(kOLEDPin_Backlight, 1);
-        // vTaskDelay(STARTUP_DELAY_MS / portTICK_PERIOD_MS);
-
-        // Turn on backlight
-        gpio_set_level(kOLEDPin_Backlight, 0);
-
         system::timer::Init();
+
+#ifndef ENABLE_OLED
+#define ENABLE_OLED 0
+#endif
+
+#if ENABLE_OLED
+        gpio_set_direction(kOLEDPin_Backlight, GPIO_MODE_OUTPUT);
+        gpio_set_level(kOLEDPin_Backlight, 0);
 
         oled::Init(); // Init oled screen
         xTaskCreatePinnedToCore(gui::Task_UpdateScreen, "screen_update_task_core_0", GUI_TASK_SIZE, NULL, 0, NULL, 0);
@@ -89,6 +86,7 @@ namespace openmc
         touch_input::SetCallback_ConfirmPressed(gui::Callback_Confirm);
         touch_input::SetCallback_RightPressed(gui::Callback_Right);
         xTaskCreatePinnedToCore(touch_input::Task_TouchInput, "touch_pad_input_task_core_0", TOUCH_INPUT_TASK_SIZE, NULL, 0, NULL, 0);
+#endif
 
         storage::Init();
 
@@ -109,7 +107,9 @@ namespace openmc
         // Try loading config from /sdcard/config.txt, else defaults set above remain in place
         storage::config::LoadConfig();
 
+#if ENABLE_OLED
         gui::display_state = gui::DisplayState::kMainStatus;
+#endif
 
         if (system::settings.wifi_mode == wifi::Mode::kClient)
         {

@@ -43,7 +43,8 @@ namespace openmc
       static uint8_t DRAM_ATTR data_buffer[128];
 
       uint8_t DRAM_ATTR game_id[256];
-      uint8_t DRAM_ATTR game_id_length;
+      uint8_t DRAM_ATTR game_id_length = 0;
+      volatile bool DRAM_ATTR game_id_updated = false;
 
       void IRAM_ATTR Commit()
       {
@@ -378,13 +379,18 @@ namespace openmc
           break;
 
         default:
-          if (command_ticks >= 3 && (command_ticks - 3) <= game_id_length)
+          if (command_ticks >= 3 && (command_ticks - 3) < game_id_length)
           {
             game_id[command_ticks - 3] = data_in;
             data_out = Responses::kReserved;
           }
           else
           {
+            if (game_id_length > 0 && game_id_length < 255)
+            {
+              game_id[game_id_length] = '\0';
+              game_id_updated = true;
+            }
             data_out = Responses::kCommandAcknowledge1;
           }
         }
