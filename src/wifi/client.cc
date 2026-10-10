@@ -58,7 +58,15 @@ namespace openmc
                     }
                     else
                     {
-                        xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                        if (!wifi::ready)
+                        {
+                            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                        }
+                        else
+                        {
+                            ESP_LOGI(kLogPrefix, "Connection blip detected. Auto-reconnecting to AP in background...");
+                            esp_wifi_connect();
+                        }
                     }
                 }
                 else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
@@ -132,6 +140,7 @@ namespace openmc
                 ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
                 s_retry_num = 0;
                 ESP_ERROR_CHECK(esp_wifi_start());
+                esp_wifi_set_ps(WIFI_PS_NONE); // Disable modem sleep: rock-solid web server & instant mDNS
 
                 ESP_LOGI(kLogPrefix, "Init finished. Waiting for connection...");
 
@@ -152,13 +161,13 @@ namespace openmc
                     connected = false;
                 }
 
-                // The event will not be processed after unregister
-                ESP_ERROR_CHECK(esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, instance_got_ip));
-                ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, instance_any_id));
-                vEventGroupDelete(s_wifi_event_group);
-
                 if (!connected)
                 {
+                    // Clean up handlers only when STA completely failed and we fall back to AP
+                    ESP_ERROR_CHECK(esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, instance_got_ip));
+                    ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, instance_any_id));
+                    vEventGroupDelete(s_wifi_event_group);
+
                     ESP_LOGI(kLogPrefix, "Cleaning up STA interface for fallback...");
                     esp_wifi_stop();
                     esp_wifi_deinit();
