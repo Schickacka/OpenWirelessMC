@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OpenMC • PS1 Wireless Memory Card</title>
+<title>OpenWirelessMC</title>
 <style>
 :root {
   --bg-dark: #121316;
@@ -31,7 +31,7 @@ body {
   min-height: 100vh;
 }
 .container {
-  max-width: 1050px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 /* Cabeçalho PlayStation Retrô */
@@ -55,14 +55,23 @@ body {
 }
 .ps-symbols {
   display: inline-flex;
-  gap: 6px;
-  font-size: 20px;
+  align-items: center;
+  gap: 7px;
+  font-size: 19px;
   font-weight: bold;
 }
-.sym-green { color: var(--ps-green); text-shadow: 0 0 10px rgba(0,230,118,0.4); }
-.sym-red   { color: var(--ps-red);   text-shadow: 0 0 10px rgba(255,59,48,0.4); }
-.sym-blue  { color: var(--ps-blue);  text-shadow: 0 0 10px rgba(41,121,255,0.4); }
-.sym-pink  { color: var(--ps-pink);  text-shadow: 0 0 10px rgba(255,64,129,0.4); }
+.sym-green { color: var(--ps-green); font-size: 18px; text-shadow: 0 0 10px rgba(0,230,118,0.4); }
+.sym-pink  { color: var(--ps-pink);  font-size: 17px; text-shadow: 0 0 10px rgba(255,64,129,0.4); }
+.sym-blue  { color: var(--ps-blue);  font-size: 19px; text-shadow: 0 0 10px rgba(41,121,255,0.4); }
+.sym-red   {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--ps-red);
+  box-shadow: 0 0 10px rgba(255,59,48,0.5);
+  margin-top: 1px;
+}
 
 .ps-title h1 {
   font-size: 22px;
@@ -182,15 +191,22 @@ body {
   font-family: monospace;
 }
 
-/* Form de Upload Arredondado */
+/* Form de Upload e Criação Arredondados */
+.grid-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+@media (max-width: 820px) {
+  .grid-actions { grid-template-columns: 1fr; }
+}
+
 .upload-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 12px;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
   align-items: end;
-}
-@media (max-width: 768px) {
-  .upload-grid { grid-template-columns: 1fr; }
 }
 .form-group label {
   display: block;
@@ -216,16 +232,16 @@ body {
 
 /* Botões Estilo PlayStation */
 .btn {
-  padding: 10px 20px;
+  padding: 8px 16px;
   border-radius: var(--radius-md);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   border: none;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   transition: all 0.2s ease;
   text-decoration: none;
 }
@@ -235,13 +251,32 @@ body {
 }
 .btn-blue:hover {
   background: #1e60d4;
-  box-shadow: 0 0 12px rgba(41,121,255,0.4);
+  box-shadow: 0 0 10px rgba(41,121,255,0.4);
+}
+.btn-download {
+  background: rgba(41, 121, 255, 0.2);
+  border: 1px solid var(--ps-blue);
+  color: #fff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+}
+.btn-download:hover {
+  background: var(--ps-blue);
+  color: #fff;
+  box-shadow: 0 0 10px rgba(41, 121, 255, 0.5);
+  text-decoration: none;
 }
 .btn-green {
   background: rgba(0,230,118,0.15);
   color: var(--ps-green);
   border: 1px solid var(--ps-green);
-  padding: 6px 12px;
+  padding: 6px 10px;
   font-size: 12px;
 }
 .btn-green:hover {
@@ -253,13 +288,24 @@ body {
   background: rgba(255,59,48,0.15);
   color: #ff6b6b;
   border: 1px solid rgba(255,59,48,0.4);
-  padding: 6px 12px;
+  padding: 6px 10px;
   font-size: 12px;
 }
 .btn-red:hover {
   background: var(--ps-red);
   color: #fff;
   box-shadow: 0 0 10px rgba(255,59,48,0.4);
+}
+.btn-grey {
+  background: rgba(255,255,255,0.08);
+  color: #e2e8f0;
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.btn-grey:hover {
+  background: rgba(255,255,255,0.16);
+  color: #fff;
 }
 
 /* Tabela de Arquivos Retrô Arredondada */
@@ -273,20 +319,20 @@ body {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 14px;
+  font-size: 13px;
 }
 .ps-table th {
   background: #1f222a;
   color: var(--text-muted);
   font-weight: 600;
-  padding: 12px 16px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--border);
   text-transform: uppercase;
   font-size: 11px;
   letter-spacing: 0.5px;
 }
 .ps-table td {
-  padding: 12px 16px;
+  padding: 10px 14px;
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 .ps-table tbody tr:hover {
@@ -323,8 +369,9 @@ body {
 }
 .actions-cell {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
+  flex-wrap: wrap;
 }
 .path-nav {
   display: flex;
@@ -342,6 +389,39 @@ body {
   text-decoration: none;
   font-weight: 600;
 }
+.game-title-text {
+  font-weight: 600;
+  color: #fff;
+}
+.game-region {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+#toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: rgba(20, 22, 28, 0.95);
+  border: 1px solid var(--ps-blue);
+  color: #fff;
+  padding: 14px 20px;
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.6), 0 0 15px rgba(41,121,255,0.3);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 9999;
+  transform: translateY(100px);
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  pointer-events: none;
+}
+#toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
 </style>
 </head>
 <body>
@@ -354,65 +434,80 @@ body {
         <span class="sym-green">▲</span>
         <span class="sym-pink">■</span>
         <span class="sym-blue">✖</span>
-        <span class="sym-red">●</span>
+        <span class="sym-red"></span>
       </div>
       <div class="ps-title">
-        <h1>OpenMC • PS1 Memory Card</h1>
-        <p>SCPH-3500 Edition &bull; ESP32-D0WD &bull; PicoStation ODE Ready</p>
+        <h1>OpenWirelessMC</h1>
+        <p data-i18n="subtitle">Wireless Memory Card Manager</p>
       </div>
     </div>
     <div class="ps-badge">
       <span class="badge-dot"></span>
-      <span>Wi-Fi Ativo</span>
+      <span data-i18n="wifi_active">Wi-Fi Ativo</span>
     </div>
   </header>
 
   <!-- Navegação por Abas -->
   <nav class="ps-tabs">
     <button class="tab-btn active" onclick="switchTab('files')">
-      <span>📁</span> Saves & Arquivos
+      <span>📁</span> <span data-i18n="tab_files">Saves & Arquivos</span>
     </button>
     <button class="tab-btn" onclick="switchTab('status')">
-      <span>📊</span> Status do Sistema
+      <span>📊</span> <span data-i18n="tab_status">Status do Sistema</span>
     </button>
     <button class="tab-btn" onclick="switchTab('config')">
-      <span>⚙️</span> Rede & Wi-Fi
+      <span>⚙️</span> <span data-i18n="tab_config">Configurações & Rede</span>
     </button>
     <button class="tab-btn" onclick="switchTab('faq')">
-      <span>❓</span> FAQ & Manual PS1
+      <span>❓</span> <span data-i18n="tab_faq">FAQ & Ajuda</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('about')">
+      <span>📜</span> <span data-i18n="tab_about">Sobre & Créditos</span>
     </button>
   </nav>
 
   <!-- ABA 1: GERENCIADOR DE ARQUIVOS (INÍCIO) -->
   <div id="tab-files" class="tab-content active">
 
-    <!-- Card de Upload com Cantos Arredondados -->
-    <div class="card">
-      <div class="card-title">
-        <span>📤</span> Enviar Novo Save para o MicroSD
-      </div>
-      <div class="upload-grid">
-        <div class="form-group">
-          <label for="newfile">Arquivo do Computador / Celular (.mc, .mcr, .mcd)</label>
+    <div class="grid-actions">
+      <!-- Card de Upload com Cantos Arredondados -->
+      <div class="card" style="margin-bottom:0;">
+        <div class="card-title">
+          <span>📤</span> <span data-i18n="upload_title">Enviar Save Existente</span>
+        </div>
+        <div class="form-group" style="margin-bottom:8px;">
           <input id="newfile" type="file" class="form-control" onchange="setpath()">
         </div>
-        <div class="form-group">
-          <label for="filepath">Nome do Arquivo de Destino</label>
+        <div class="upload-grid">
           <input id="filepath" type="text" class="form-control" placeholder="ex: SLUS-00005.mc">
-        </div>
-        <div>
           <button id="upload" type="button" class="btn btn-blue" onclick="upload()">
-            <span>✖</span> Enviar Save
+            <span>✖</span> <span data-i18n="btn_upload">Enviar Save</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Card de Criar Novo Memory Card -->
+      <div class="card" style="margin-bottom:0;">
+        <div class="card-title">
+          <span>✨</span> <span data-i18n="create_title">Criar Novo Memory Card Virgem</span>
+        </div>
+        <div class="form-group" style="margin-bottom:8px;">
+          <label for="newcardname" data-i18n="create_desc">Nome do Save ou Game ID (128 KB formatado)</label>
+          <input id="newcardname" type="text" class="form-control" placeholder="ex: SLUS-00972.mc ou Tekken3.mc">
+        </div>
+        <div style="display:flex; justify-content:flex-end;">
+          <button id="btn-create" type="button" class="btn btn-green" onclick="createNewCard()" style="padding:10px 18px; font-size:13px;">
+            <span>▲</span> <span data-i18n="btn_create">Criar Memory Card</span>
           </button>
         </div>
       </div>
     </div>
 
     <!-- Tabela de Arquivos do SD -->
-    <div class="card">
+    <div class="card" style="margin-top:16px;">
       <div class="card-title" style="justify-content: space-between;">
         <div style="display:flex; align-items:center; gap:8px;">
-          <span>💾</span> Arquivos no Cartão MicroSD
+          <span>💾</span> <span data-i18n="files_on_sd">Arquivos no Cartão MicroSD</span>
         </div>
         <div id="file-counter" style="font-size:12px; color:var(--text-muted); font-weight:normal;"></div>
       </div>

@@ -4,105 +4,121 @@
 
   <!-- ABA 2: STATUS DO SISTEMA -->
   <div id="tab-status" class="tab-content">
-    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:16px;">
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:16px;">
       
-      <!-- Card: Armazenamento MicroSD -->
+      <!-- Card: Gestão do Cartão SD -->
       <div class="card">
-        <div class="card-title">
-          <span>💾</span> Cartão MicroSD (FatFS)
+        <div class="card-title" style="justify-content: space-between;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span>💾</span> <span data-i18n="sd_card_title">Gestão do Cartão SD</span>
+          </div>
+          <div id="sd-status-badge"></div>
         </div>
         <div style="margin-bottom:12px;">
           <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:6px;">
-            <span style="color:var(--text-muted);">Uso do Armazenamento</span>
+            <span style="color:var(--text-muted);" data-i18n="storage_usage">Uso do Armazenamento</span>
             <span id="sd-percent" style="font-weight:700; color:var(--ps-blue);">--%</span>
           </div>
           <div style="width:100%; height:10px; background:#14151a; border-radius:999px; overflow:hidden; border:1px solid var(--border);">
             <div id="sd-bar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--ps-blue), var(--ps-green)); border-radius:999px; transition:width 0.4s ease;"></div>
           </div>
         </div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:13px;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:13px; margin-bottom:12px;">
           <div style="background:#14151a; padding:10px; border-radius:var(--radius-sm); border:1px solid var(--border);">
-            <div style="color:var(--text-muted); font-size:11px;">ESPAÇO LIVRE</div>
+            <div style="color:var(--text-muted); font-size:11px;" data-i18n="free_space">ESPAÇO LIVRE</div>
             <div id="sd-free" style="font-size:16px; font-weight:700; color:var(--ps-green);">Carregando...</div>
           </div>
           <div style="background:#14151a; padding:10px; border-radius:var(--radius-sm); border:1px solid var(--border);">
-            <div style="color:var(--text-muted); font-size:11px;">CAPACIDADE TOTAL</div>
+            <div style="color:var(--text-muted); font-size:11px;" data-i18n="total_space">CAPACIDADE TOTAL</div>
             <div id="sd-total" style="font-size:16px; font-weight:700; color:#fff;">Carregando...</div>
           </div>
+        </div>
+        <!-- Estimativa de Saves Disponíveis -->
+        <div style="background:#14151a; padding:12px; border-radius:var(--radius-md); border:1px solid var(--border); display:flex; flex-direction:column; gap:6px; font-size:12px; margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between;">
+            <span style="color:var(--text-muted);" data-i18n="total_saves_sd">🎮 Saves no Cartão:</span>
+            <span id="total-saves-text" style="font-weight:700; color:var(--ps-blue);">-- saves</span>
+          </div>
+          <div style="display:flex; justify-content:space-between;">
+            <span style="color:var(--text-muted); text-transform:none;" data-i18n="ps1_remaining_space">Espaço restante para PS1 (128 KB):</span>
+            <span id="ps1-estimate" style="font-weight:700; color:var(--ps-green);">-- saves</span>
+          </div>
+          <div style="display:flex; justify-content:space-between;">
+            <span style="color:var(--text-muted); text-transform:none;" data-i18n="ps2_remaining_space">Espaço restante para PS2 (8 MB):</span>
+            <span id="ps2-estimate" style="font-weight:700; color:var(--ps-pink);">-- saves</span>
+          </div>
+        </div>
+
+        <!-- Botão: Remover com Segurança -->
+        <div>
+          <button id="btn-eject-sd" type="button" class="btn btn-red" onclick="ejectMicroSD()" style="width:100%; padding:10px 14px; font-size:12px; display:inline-flex; align-items:center; justify-content:center; gap:8px; border-radius:var(--radius-sm); font-weight:600;">
+            <span>⏏</span> <span data-i18n="btn_eject_sd">Remover Cartão SD com Segurança</span>
+          </button>
         </div>
       </div>
 
       <!-- Card: Wi-Fi & Conexão -->
       <div class="card">
         <div class="card-title">
-          <span>📶</span> Conexão Wi-Fi
+          <span>📶</span> <span data-i18n="wifi_conn_title">Conexão Wi-Fi</span>
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; font-size:13px;">
           <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
-            <span style="color:var(--text-muted);">Modo de Operação:</span>
+            <span style="color:var(--text-muted);" data-i18n="op_mode">Modo de Operação:</span>
             <span id="wifi-mode-text" style="font-weight:600; color:#fff;">--</span>
           </div>
           <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
-            <span style="color:var(--text-muted);">Rede (SSID):</span>
+            <span style="color:var(--text-muted);" data-i18n="wifi_ssid_label">Rede (SSID):</span>
             <span id="wifi-ssid-text" style="font-weight:600; color:var(--ps-blue);">--</span>
           </div>
           <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
-            <span style="color:var(--text-muted);">Endereço IP:</span>
+            <span style="color:var(--text-muted);" data-i18n="ip_address_label">Endereço IP:</span>
             <span id="wifi-ip-text" style="font-weight:600; color:var(--ps-green); font-family:monospace;">--</span>
           </div>
           <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
-            <span style="color:var(--text-muted);">Qualidade do Sinal (RSSI):</span>
+            <span style="color:var(--text-muted);" data-i18n="local_host_label">Host Local:</span>
+            <a href="http://wirelessmc.local" target="_blank" style="font-weight:600; color:var(--ps-blue); font-family:monospace; text-decoration:none;">http://wirelessmc.local</a>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted);" data-i18n="signal_rssi">Sinal (RSSI):</span>
             <span id="wifi-rssi-text" style="font-weight:600;">--</span>
           </div>
         </div>
       </div>
 
-      <!-- Card: Hardware ESP32 & Desempenho -->
+      <!-- Card: OWMC Hardware -->
       <div class="card">
         <div class="card-title">
-          <span>⚡</span> Hardware & Processador
+          <span>⚡</span> <span data-i18n="hardware_title">OWMC Hardware</span>
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; font-size:13px;">
-          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
-            <span style="color:var(--text-muted);">Chipset:</span>
-            <span style="font-weight:600; color:#fff;">ESP32-D0WD-V3 (Dual Core)</span>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted); flex-shrink:0;">Chipset:</span>
+            <span id="chip-model-text" style="font-weight:600; color:#fff; text-align:right;">Carregando...</span>
           </div>
-          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
-            <span style="color:var(--text-muted);">Arquitetura:</span>
-            <span style="font-weight:600; color:var(--ps-blue);">Core 0 FreeRTOS + Core 1 Baremetal SIO</span>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted); flex-shrink:0;">Frequência da CPU:</span>
+            <span id="cpu-freq-text" style="font-weight:600; color:var(--ps-blue); text-align:right;">-- MHz</span>
           </div>
-          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
-            <span style="color:var(--text-muted);">Memória RAM Livre:</span>
-            <span id="heap-free-text" style="font-weight:600; color:var(--ps-green);">--</span>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted); flex-shrink:0;">Memória Flash SPI:</span>
+            <span id="flash-size-text" style="font-weight:600; color:#fff; text-align:right;">-- MB</span>
           </div>
-          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
-            <span style="color:var(--text-muted);">Tempo Ativo (Uptime):</span>
-            <span id="uptime-text" style="font-weight:600; color:#fff;">--</span>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted); flex-shrink:0;">Memória RAM Total:</span>
+            <span id="heap-total-text" style="font-weight:600; color:#fff; text-align:right;">-- KB</span>
           </div>
-        </div>
-      </div>
-
-      <!-- Card: Estado do Memory Card Ativo -->
-      <div class="card">
-        <div class="card-title">
-          <span>🕹️</span> Memory Card Virtual
-        </div>
-        <div style="display:flex; flex-direction:column; gap:8px; font-size:13px;">
-          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
-            <span style="color:var(--text-muted);">Slot Virtual:</span>
-            <span style="font-weight:600; color:var(--ps-green);">Slot 1 (PU-8 / SCPH-3500)</span>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted); flex-shrink:0;">Memória RAM Livre:</span>
+            <span id="heap-free-text" style="font-weight:600; color:var(--ps-green); text-align:right;">--</span>
           </div>
-          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
-            <span style="color:var(--text-muted);">Save Engatado:</span>
-            <span id="loaded-file-text" style="font-weight:700; color:var(--ps-pink); font-family:monospace;">--</span>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted); flex-shrink:0;">Arquitetura:</span>
+            <span style="font-weight:600; color:var(--ps-pink); text-align:right; font-size:12px; line-height:1.3;">Core 0 FreeRTOS + Core 1 Baremetal SIO</span>
           </div>
-          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
-            <span style="color:var(--text-muted);">PicoStation GameID Switch:</span>
-            <span style="font-weight:600; color:var(--ps-green);">Ativo (Cmd 0x21)</span>
-          </div>
-          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
-            <span style="color:var(--text-muted);">Total de Saves no SD:</span>
-            <span id="total-saves-text" style="font-weight:600; color:var(--ps-blue);">--</span>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted); flex-shrink:0;">Tempo Ativo (Uptime):</span>
+            <span id="uptime-text" style="font-weight:600; color:#fff; text-align:right;">--</span>
           </div>
         </div>
       </div>
@@ -111,35 +127,37 @@
   </div>
 
 
-  <!-- ABA 3: CONFIGURAÇÕES DE REDE -->
+  <!-- ABA 3: CONFIGURAÇÕES DE REDE E SISTEMA -->
   <div id="tab-config" class="tab-content">
     <div class="card" style="max-width:650px; margin:0 auto;">
       <div class="card-title">
-        <span>⚙️</span> Configurações de Conexão Wi-Fi
+        <span>⚙️</span> <span data-i18n="config_title">Configurações & Rede</span>
       </div>
-      <p style="font-size:13px; color:var(--text-muted); margin-bottom:18px;">
+      
+
+      <p style="font-size:13px; color:var(--text-muted); margin-bottom:18px;" data-i18n="config_notice">
         As alterações feitas aqui são salvas diretamente no arquivo <code>/sdcard/config.txt</code> do MicroSD. Ao reiniciar o console ou clicar no botão abaixo, a nova rede entrará em vigor automaticamente.
       </p>
 
       <form id="config-form" onsubmit="saveConfig(event)">
         <!-- Seletor de Modo -->
         <div style="margin-bottom:16px;">
-          <label style="display:block; font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:8px;">
+          <label style="display:block; font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:8px;" data-i18n="wifi_mode_title">
             MODO DE OPERAÇÃO WI-FI
           </label>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
             <label style="display:flex; align-items:center; gap:8px; padding:12px; background:#14151a; border:1px solid var(--border); border-radius:var(--radius-md); cursor:pointer;">
               <input type="radio" name="wifi_mode" value="client" id="mode-client" checked onchange="toggleConfigMode()">
               <div>
-                <div style="font-size:13px; font-weight:600; color:#fff;">Modo Cliente</div>
-                <div style="font-size:11px; color:var(--text-muted);">Conectar no Wi-Fi de Casa</div>
+                <div style="font-size:13px; font-weight:600; color:#fff;" data-i18n="mode_client_title">Modo Cliente</div>
+                <div style="font-size:11px; color:var(--text-muted);" data-i18n="mode_client_desc">Conectar no Wi-Fi de Casa</div>
               </div>
             </label>
             <label style="display:flex; align-items:center; gap:8px; padding:12px; background:#14151a; border:1px solid var(--border); border-radius:var(--radius-md); cursor:pointer;">
               <input type="radio" name="wifi_mode" value="ap" id="mode-ap" onchange="toggleConfigMode()">
               <div>
-                <div style="font-size:13px; font-weight:600; color:#fff;">Ponto de Acesso (AP)</div>
-                <div style="font-size:11px; color:var(--text-muted);">Rede Própria 'openmc'</div>
+                <div style="font-size:13px; font-weight:600; color:#fff;" data-i18n="mode_ap_title">Ponto de Acesso (AP)</div>
+                <div style="font-size:11px; color:var(--text-muted);" data-i18n="mode_ap_desc">Rede Própria 'WirelessMC'</div>
               </div>
             </label>
           </div>
@@ -147,22 +165,22 @@
 
         <!-- Nome da Rede (SSID) -->
         <div class="form-group" style="margin-bottom:16px;">
-          <label for="cfg-ssid" style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px; display:block;">
+          <label for="cfg-ssid" style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px; display:block;" data-i18n="cfg_ssid_label">
             NOME DA REDE WI-FI (SSID)
           </label>
-          <input type="text" id="cfg-ssid" class="form-control" required placeholder="ex: MinhaRedeWifi">
+          <input type="text" id="cfg-ssid" class="form-control" required placeholder="ex: WirelessMC">
         </div>
 
         <!-- Senha da Rede -->
         <div class="form-group" style="margin-bottom:20px;">
-          <label for="cfg-pass" style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px; display:block;">
+          <label for="cfg-pass" style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px; display:block;" data-i18n="cfg_pass_label">
             SENHA DO WI-FI
           </label>
           <div style="position:relative;">
             <input type="password" id="cfg-pass" class="form-control" placeholder="Mínimo 8 caracteres" style="padding-right:45px;">
             <button type="button" onclick="togglePassVisibility()" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px;">👁️</button>
           </div>
-          <div id="pass-hint" style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+          <div id="pass-hint" style="font-size:11px; color:var(--text-muted); margin-top:4px;" data-i18n="pass_hint_client">
             Para o modo Cliente, coloque a senha da sua rede doméstica.
           </div>
         </div>
@@ -172,10 +190,10 @@
         <!-- Botões de Ação -->
         <div style="display:flex; gap:12px; flex-wrap:wrap;">
           <button type="submit" class="btn btn-blue" style="flex:1;">
-            <span>💾</span> Salvar Configuração no SD
+            <span>💾</span> <span data-i18n="btn_save_config">Salvar Configuração no SD</span>
           </button>
           <button type="button" class="btn btn-red" onclick="rebootOpenMC()">
-            <span>🔄</span> Reiniciar OpenMC
+            <span>🔄</span> <span data-i18n="btn_reboot">Reiniciar OpenWirelessMC</span>
           </button>
         </div>
       </form>
@@ -183,39 +201,54 @@
   </div>
 
 
-  <!-- ABA 4: FAQ & MANUAL PLAYSTATION 1 -->
+  <!-- ABA 4: FAQ & GUIA COMPLETO -->
   <div id="tab-faq" class="tab-content">
     
     <div class="card">
       <div class="card-title">
-        <span>🎮</span> Integração com o PicoStation ODE (Auto GameID)
+        <span>🎮</span> <span data-i18n="faq_switch_title">Troca Automática de Jogo (Auto GameID Switch)</span>
       </div>
-      <p style="font-size:14px; color:#cbd5e1; margin-bottom:10px;">
-        O OpenMC possui compatibilidade direta e nativa com o PicoStation ODE via comando serial SIO <code>0x21</code>.
+      <p style="font-size:14px; color:#cbd5e1; margin-bottom:10px;" data-i18n="faq_switch_intro">
+        O OpenWirelessMC possui compatibilidade direta com comandos seriais de identificação de jogo (como no PicoStation ODE).
       </p>
-      <ul style="font-size:13px; color:var(--text-muted); padding-left:20px; line-height:1.7;">
-        <li>Ao iniciar qualquer jogo pelo menu do PicoStation, o console envia automaticamente o Game ID oficial (exemplo: <code>SLUS-00005</code> ou <code>SCUS-94183</code>).</li>
-        <li>O OpenMC intercepta esse comando e engata imediatamente o cartão virtual <code>&lt;GAME_ID&gt;.mc</code> no Slot 1.</li>
-        <li>Se você estiver jogando aquele game pela primeira vez e o arquivo não existir no MicroSD, o OpenMC cria instantaneamente uma imagem formatada virgem de 128KB!</li>
-        <li>Isso garante que <b>cada jogo tenha seu próprio Memory Card virtual de 15 blocos dedicados</b>, sem limites de espaço!</li>
+      <ul style="font-size:13px; color:var(--text-muted); padding-left:20px; line-height:1.7;" data-i18n="faq_switch_list">
+        <li><b>Boot Padrão:</b> Ao ligar o console sem lançar nenhum jogo, o sistema monta automaticamente <code>default.mc</code> no Slot 1.</li>
+        <li><b>Troca em Tempo Real:</b> Ao iniciar qualquer jogo pelo menu de um ODE, o console envia automaticamente o Game ID oficial (exemplo: <code>SLUS-01334</code> ou <code>SCUS-94183</code>).</li>
+        <li><b>Criação Automática:</b> O OpenWirelessMC intercepta esse comando e engata imediatamente <code>&lt;GAME_ID&gt;.mc</code> no Slot 1. Se o arquivo ainda não existir, uma nova imagem formatada de 128KB é criada instantaneamente no MicroSD!</li>
+        <li>Cada jogo possui seu próprio cartão virtual dedicado, com slots ilimitados!</li>
       </ul>
     </div>
 
     <div class="card">
       <div class="card-title">
-        <span>💾</span> Formato e Estrutura dos Arquivos de Save
+        <span>⏏️</span> <span data-i18n="faq_eject_title">Desmontagem e Ejeção Virtual de Memory Card</span>
+      </div>
+      <p style="font-size:13px; color:var(--text-muted); line-height:1.7;" data-i18n="faq_eject_desc">
+        No banner superior de Save Ativo, há o botão <b>⏏ Desmontar / Ejetar</b>. Ele desabilita a emulação do barramento e esvazia a ranhura de forma totalmente segura no hardware. É perfeito para batalhas como a do <b>Psycho Mantis no Metal Gear Solid</b>, onde o chefe tenta ler seus pensamentos através dos seus saves!
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>💾</span> <span data-i18n="faq_format_title">Formato, Restrições e Compatibilidade</span>
       </div>
       <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px; margin-top:10px;">
         <div style="background:#14151a; padding:14px; border-radius:var(--radius-md); border:1px solid var(--border);">
-          <div style="font-weight:700; color:var(--ps-green); font-size:14px; margin-bottom:6px;">Tamanho Exato: 128 KB</div>
-          <div style="font-size:12px; color:var(--text-muted); line-height:1.6;">
-            O PlayStation 1 requer imagens com tamanho exato de <b>131.072 bytes (128 KB)</b>. Elas contêm 16 quadros de 8KB (1 quadro de diretório/cabeçalho + 15 blocos utilizáveis).
+          <div style="font-weight:700; color:var(--ps-green); font-size:14px; margin-bottom:6px;" data-i18n="faq_ps1_spec_title">Padrão PS1 (128 KB)</div>
+          <div style="font-size:12px; color:var(--text-muted); line-height:1.6;" data-i18n="faq_ps1_spec_desc">
+            Imagens padrão de PlayStation 1 têm exatamente <b>131.072 bytes (128 KB)</b> com 16 quadros de 8KB (1 cabeçalho + 15 blocos). Formatações feitas pela web criam a estrutura oficial da Sony.
           </div>
         </div>
         <div style="background:#14151a; padding:14px; border-radius:var(--radius-md); border:1px solid var(--border);">
-          <div style="font-weight:700; color:var(--ps-blue); font-size:14px; margin-bottom:6px;">Extensões Compatíveis</div>
-          <div style="font-size:12px; color:var(--text-muted); line-height:1.6;">
-            Arquivos com extensões <code>.mc</code>, <code>.mcr</code> e <code>.mcd</code> são reconhecidos nativamente. O padrão do OpenMC é <code>.mc</code>.
+          <div style="font-weight:700; color:var(--ps-pink); font-size:14px; margin-bottom:6px;" data-i18n="faq_ps2_spec_title">Suporte e Saves PS2 (8 MB)</div>
+          <div style="font-size:12px; color:var(--text-muted); line-height:1.6;" data-i18n="faq_ps2_spec_desc">
+            O gerenciador suporta armazenamento e upload de saves de PlayStation 2 (8 MB). No painel de status você acompanha o espaço para ambos os consoles.
+          </div>
+        </div>
+        <div style="background:#14151a; padding:14px; border-radius:var(--radius-md); border:1px solid var(--border);">
+          <div style="font-weight:700; color:var(--ps-blue); font-size:14px; margin-bottom:6px;" data-i18n="faq_rules_title">Regras de Nomes de Arquivo</div>
+          <div style="font-size:12px; color:var(--text-muted); line-height:1.6;" data-i18n="faq_rules_desc">
+            Nomes de arquivo não devem conter espaços nem caracteres proibidos (<code>/ \ : * ? " &lt; &gt; |</code>). A extensão <code>.mc</code> é adicionada automaticamente caso omitida.
           </div>
         </div>
       </div>
@@ -223,33 +256,226 @@
 
     <div class="card">
       <div class="card-title">
-        <span>🔄</span> Como Usar Saves de Emuladores (DuckStation / Mednafen / MemcardRex)
+        <span>🔄</span> <span data-i18n="faq_emu_title">Como Usar Saves de Emuladores (DuckStation / PCSX / MemcardRex)</span>
       </div>
-      <ol style="font-size:13px; color:var(--text-muted); padding-left:20px; line-height:1.8;">
-        <li>Exporte ou localize o arquivo de Memory Card do emulador no seu computador (ele deve ter 128 KB).</li>
-        <li>Renomeie o arquivo para o formato desejado, preferencialmente o Game ID do jogo (ex: <code>SLUS-00005.mc</code> para Crash Bandicoot).</li>
-        <li>Acesse esta interface pelo navegador, abra a aba <b>Saves & Arquivos</b> e selecione o arquivo no formulário de envio.</li>
-        <li>Clique em <b>✖ Enviar Save</b>. O arquivo estará salvo no MicroSD do seu PS1!</li>
-        <li>Para forçar o carregamento imediato no console, basta clicar no botão <b>▲ Montar</b> na tabela.</li>
+      <ol style="font-size:13px; color:var(--text-muted); padding-left:20px; line-height:1.8;" data-i18n="faq_emu_list">
+        <li>Exporte o arquivo de Memory Card do emulador (formatos <code>.mc</code>, <code>.mcr</code>, <code>.mcd</code> de 128 KB).</li>
+        <li>Renomeie o arquivo se preferir (ex: <code>SLUS-01334.mc</code> ou <code>Tekken3.mc</code>).</li>
+        <li>Abra a aba <b>Saves & Arquivos</b> e selecione o arquivo em <b>Enviar Save Existente</b>.</li>
+        <li>Clique em <b>✖ Enviar Save</b>. O save já estará no MicroSD do console!</li>
+        <li>Para usá-lo imediatamente, clique em <b>▲ Montar</b> na tabela.</li>
       </ol>
     </div>
 
-    <div class="card">
-      <div class="card-title">
-        <span>🛡️</span> Boas Práticas e Dicas de Segurança
-      </div>
-      <ul style="font-size:13px; color:var(--text-muted); padding-left:20px; line-height:1.7;">
-        <li><b>Backups Simples:</b> Baixe periodicamente seus arquivos <code>.mc</code> clicando no nome deles na tabela para guardar uma cópia segura no seu computador ou na nuvem.</li>
-        <li><b>Nunca Desligue Durante a Gravação:</b> Quando um jogo do PS1 estiver salvando ("Salvando... Não desligue o console"), aguarde a mensagem de confirmação antes de desligar o console. O OpenMC grava os dados na memória RAM e sincroniza com o MicroSD logo em seguida.</li>
-        <li><b>Organização:</b> Pastas com o nome do Game ID são criadas automaticamente para organizar títulos multidiscos ou backups especiais.</li>
-      </ul>
-    </div>
+  </div> <!-- Fechamento da ABA 4 (tab-faq) -->
 
+
+  <!-- ABA 5: SOBRE & CRÉDITOS -->
+  <div id="tab-about" class="tab-content">
+    <div class="card" style="max-width:750px; margin:0 auto;">
+      <div class="card-title">
+        <span>📜</span> <span data-i18n="about_title">Sobre o Projeto & Créditos</span>
+      </div>
+
+      <div style="background: linear-gradient(135deg, rgba(41,121,255,0.1), rgba(0,230,118,0.05)); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px; margin-bottom: 20px;">
+        <div style="font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 6px;">OpenWirelessMC</div>
+        <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6;" data-i18n="about_project_desc">
+          Emulador sem fio de Memory Card para PlayStation com armazenamento em MicroSD, interface web responsiva retrô, identificação automática de títulos por banco de dados e modo de resgate inteligente.
+        </div>
+        <div style="margin-top: 14px; display: flex; align-items: center; gap: 8px; font-size: 13px;">
+          <span style="color: var(--ps-blue); font-weight: 700;" data-i18n="about_creator_label">★ Criador & Mantenedor:</span>
+          <span style="color: #fff; font-weight: 600; background: rgba(41,121,255,0.2); padding: 3px 12px; border-radius: 999px; border: 1px solid var(--ps-blue);">Schickacka</span>
+        </div>
+      </div>
+
+      <div class="card" style="background:#14151a; border: 1px solid var(--border); margin-bottom: 16px;">
+        <div class="card-title" style="font-size:14px;">
+          <span>🕹️</span> <span data-i18n="about_openmc_title">Projeto OpenMC Original & Engenharia Reversa</span>
+        </div>
+        <p style="font-size:13px; color:var(--text-muted); line-height:1.7; margin-bottom:14px;" data-i18n="about_openmc_desc">
+          Este projeto é baseado no código original do OpenMC, pioneiro na emulação baremetal do barramento SPI/SIO do barramento de Memory Card do PlayStation no ESP32.
+        </p>
+        <div style="font-size:12px; color:var(--text-muted); font-weight:600; margin-bottom:10px;" data-i18n="about_authors_title">AUTORES & CONTRIBUIDORES ORIGINAIS:</div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:10px;">
+          <div style="background:#1c1e24; padding:10px 14px; border-radius:var(--radius-sm); border:1px solid var(--border); font-size:13px; font-weight:600; color:#cbd5e1; display:flex; align-items:center; gap:6px;"><span>👾</span> danhans42</div>
+          <div style="background:#1c1e24; padding:10px 14px; border-radius:var(--radius-sm); border:1px solid var(--border); font-size:13px; font-weight:600; color:#cbd5e1; display:flex; align-items:center; gap:6px;"><span>👾</span> Nicolas Noble</div>
+          <div style="background:#1c1e24; padding:10px 14px; border-radius:var(--radius-sm); border:1px solid var(--border); font-size:13px; font-weight:600; color:#cbd5e1; display:flex; align-items:center; gap:6px;"><span>❤️</span> sickle &lt;3</div>
+          <div style="background:#1c1e24; padding:10px 14px; border-radius:var(--radius-sm); border:1px solid var(--border); font-size:13px; font-weight:600; color:#cbd5e1; display:flex; align-items:center; gap:6px;"><span>👾</span> rama</div>
+        </div>
+      </div>
+
+      <div class="card" style="background:#14151a; border: 1px solid var(--border); margin-bottom: 0;">
+        <div class="card-title" style="font-size:14px;">
+          <span>📚</span> <span data-i18n="about_db_title">Banco de Dados de Jogos & Recursos</span>
+        </div>
+        <p style="font-size:13px; color:var(--text-muted); line-height:1.7;" data-i18n="about_db_desc">
+          Banco de dados integrado com mais de 10.000 títulos oficiais do catálogo global de PlayStation 1 gerado a partir do DuckStation Game Database. Todos os direitos dos jogos pertencem às suas respectivas publicadoras.
+        </p>
+      </div>
+
+    </div>
   </div>
 
 </div> <!-- Fechamento container -->
 
+<!-- TOAST NOTIFICATION (Easter Egg) -->
+<div id="toast">
+  <div id="toast-msg" style="font-size:14px; font-weight:600; color:#fff; font-style:italic;">"I can read your mind! ...Wait, there is no Memory Card!"</div>
+</div>
+
 <script>
+// Banco de Dados Expandido de Game IDs (PS1 e PS2)
+var GAME_DB = {
+  "SCUS-94183": "PaRappa The Rapper",
+  "SCUS-94244": "Gran Turismo",
+  "SCUS-94426": "Gran Turismo 2",
+  "SCUS-94900": "Ape Escape",
+  "SCUS-94491": "Crash Bash",
+  "SCUS-94488": "Spyro: Year of the Dragon",
+  "SCUS-94425": "Spyro 2: Ripto's Rage!",
+  "SCUS-94228": "Spyro the Dragon",
+  "SCUS-94497": "Syphon Filter 2",
+  "SCUS-94240": "Twisted Metal III",
+  "SCUS-94563": "Twisted Metal 4",
+  "SCUS-94163": "Final Fantasy VII (Disc 1)",
+  "SCUS-94164": "Final Fantasy VII (Disc 2)",
+  "SCUS-94165": "Final Fantasy VII (Disc 3)",
+  "SLUS-00005": "Crash Bandicoot",
+  "SLUS-00007": "Twisted Metal",
+  "SLUS-00473": "Crash Bandicoot 2: Cortex Strikes Back",
+  "SLUS-00665": "Crash Bandicoot: Warped",
+  "SLUS-00744": "Crash Team Racing (CTR)",
+  "SLUS-00539": "Resident Evil 2 (Leon)",
+  "SLUS-00756": "Resident Evil 2 (Claire)",
+  "SLUS-00561": "Metal Gear Solid (Disc 1)",
+  "SLUS-00774": "Metal Gear Solid (Disc 2)",
+  "SLUS-00594": "Silent Hill",
+  "SLUS-00662": "Castlevania: Symphony of the Night",
+  "SLUS-00680": "Resident Evil 3: Nemesis",
+  "SLUS-00707": "Dino Crisis",
+  "SLUS-01279": "Dino Crisis 2",
+  "SLUS-01334": "Mega Man X5",
+  "SLUS-01361": "Barbie Explorer",
+  "SLUS-01363": "Final Fantasy Chronicles (Chrono Trigger)",
+  "SLUS-01395": "Mega Man X6",
+  "SLUS-01411": "Yu-Gi-Oh! Forbidden Memories",
+  "SLUS-01419": "Tony Hawk's Pro Skater 3",
+  "SLUS-01429": "Delta Force: Urban Warfare",
+  "SLUS-00892": "Tony Hawk's Pro Skater 2",
+  "SLUS-00923": "Chrono Cross",
+  "SLUS-00972": "Tekken 3",
+  "SLUS-00402": "Tekken 2",
+  "SLUS-00067": "Tomb Raider",
+  "SLUS-00533": "Tomb Raider II",
+  "SLUS-00106": "Resident Evil: Director's Cut",
+  "SLUS-00748": "MediEvil",
+  "SLUS-00896": "Syphon Filter",
+  "SLUS-00405": "Driver",
+  "SLUS-00776": "Legacy of Kain: Soul Reaver",
+  "SLUS-00879": "Xenogears",
+  "SLUS-00845": "Final Fantasy VIII",
+  "SLUS-01251": "Final Fantasy IX",
+  "SLUS-00078": "Wipeout",
+  "SLUS-00213": "Rayman",
+  "SLUS-00454": "Oddworld: Abe's Oddysee",
+  "SLES-00001": "Ridge Racer",
+  "SLES-00024": "Wipeout",
+  "SLES-00075": "Destruction Derby",
+  "SLES-00972": "Tekken 3",
+  "SLES-01507": "Metal Gear Solid",
+  "SLES-00975": "Gran Turismo",
+  "SLES-02380": "Gran Turismo 2",
+  "SLES-02096": "Silent Hill",
+  "SLES-02534": "Resident Evil 3: Nemesis",
+  "SLPM-86023": "Final Fantasy VII (International)",
+  "SLPS-00025": "Ridge Racer",
+  "SLPS-00215": "Dragon Quest VII",
+  "SLPS-00917": "Tobal No. 1",
+  "SLPS-01762": "Tales of Destiny",
+  "SLPS-00001": "Mahjong Station"
+};
+
+// Dicionário de Textos do Sistema (Português do Brasil)
+var I18N = {
+  generic_save: "Save Genérico",
+  btn_remount_sd: "Montar Cartão SD",
+  btn_eject_sd: "Desmontar Cartão SD",
+  pass_hint_ap: "No modo Ponto de Acesso, a senha padrão é 'SenhaDificil!'.",
+  pass_hint_client: "No modo Cliente, digite a senha da sua rede doméstica."
+};
+
+function applyTranslations() {
+  populateGameTitles();
+}
+
+function showToast(msg) {
+  var toast = document.getElementById("toast");
+  var tMsg = document.getElementById("toast-msg");
+  if (toast) {
+    if (tMsg && msg) tMsg.innerText = msg;
+    toast.classList.add("show");
+    setTimeout(function() {
+      toast.classList.remove("show");
+    }, 4500);
+  }
+}
+
+function getRegionFromPrefix(prefix) {
+  prefix = prefix.toUpperCase();
+  if (prefix === "SCUS" || prefix === "SLUS") return "US 🇺🇸";
+  if (prefix === "SCES" || prefix === "SLES") return "EU 🇪🇺";
+  if (prefix === "SCPS" || prefix === "SLPS" || prefix === "SLPM" || prefix === "SIPS") return "JP 🇯🇵";
+  if (prefix === "SCAJ" || prefix === "SLAJ") return "ASIA 🌏";
+  return "";
+}
+
+function resolveGameInfo(filename) {
+  var t = I18N;
+  if (!filename) return { title: t.generic_save, region: "" };
+  var match = filename.match(/([A-Za-z]{4})[-_](\d{3,5})/);
+  if (match) {
+    var code = match[1].toUpperCase() + "-" + match[2];
+    var region = getRegionFromPrefix(match[1]);
+    var title = GAME_DB[code];
+    if (title) {
+      return { title: title, region: region, code: code };
+    }
+    return { title: code, region: region, code: code };
+  }
+  return { title: t.generic_save, region: "" };
+}
+
+// Atualizar Tabela e Banner com Nomes de Jogos
+function populateGameTitles() {
+  var t = I18N;
+  document.querySelectorAll(".game-col").forEach(function(td) {
+    var rawName = td.getAttribute("data-name") || "";
+    var isDir = td.closest("tr").querySelector(".tag-dir");
+    if (isDir) {
+      var info = resolveGameInfo(rawName);
+      if (info.title !== t.generic_save) {
+        td.innerHTML = '<span class="game-title-text">' + info.title + '</span>' + (info.region ? '<span class="game-region">(' + info.region + ')</span>' : '');
+      } else {
+        td.innerHTML = '<span style="color:var(--text-muted);">-</span>';
+      }
+    } else {
+      var info = resolveGameInfo(rawName);
+      td.innerHTML = '<span class="game-title-text">' + info.title + '</span>' + (info.region ? '<span class="game-region">(' + info.region + ')</span>' : '');
+    }
+  });
+
+  // Atualizar Banner de Save Ativo
+  var loadedElem = document.querySelector(".loaded-filename");
+  if (loadedElem && loadedElem.innerText.indexOf("🎮") >= 0) {
+    var fullPath = loadedElem.innerText.replace("🎮", "").trim().split("•")[0].trim();
+    var fname = fullPath.split("/").pop();
+    var info = resolveGameInfo(fname);
+    if (info.title !== t.generic_save) {
+      loadedElem.innerHTML = '🎮 ' + fullPath + ' &bull; <span style="color:#fff; font-weight:600;">' + info.title + '</span>' + (info.region ? ' (' + info.region + ')' : '');
+    }
+  }
+}
+
 // Alternância de Abas
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -286,12 +512,12 @@ function upload() {
     alert("Digite o nome do arquivo de destino!");
     return;
   }
-  if (filePath.indexOf(' ') >= 0) {
-    alert("O nome do arquivo não pode conter espaços!");
+  if (/[\\/:*?"<>| ]/.test(filePath)) {
+    alert("O nome do arquivo não pode conter espaços nem caracteres proibidos (\\ / : * ? \" < > |)!");
     return;
   }
-  if (fileInput[0].size > 128 * 1024) {
-    alert("O tamanho do save de PS1 deve ser no máximo 128 KB (131.072 bytes)!");
+  if (fileInput[0].size > 8 * 1024 * 1024) {
+    alert("O tamanho do arquivo deve ser no máximo 8 MB (8.388.608 bytes)!");
     return;
   }
 
@@ -320,7 +546,143 @@ function upload() {
   xhttp.send(fileInput[0]);
 }
 
-// Formatar Bytes em GB/MB/KB
+// Criar Novo Memory Card Virgem
+function createNewCard() {
+  var cardName = document.getElementById("newcardname").value.trim();
+  if (!cardName) {
+    alert("Digite o nome para o novo Memory Card!");
+    return;
+  }
+  if (/[\\/:*?"<>| ]/.test(cardName)) {
+    alert("O nome do arquivo não pode conter espaços nem caracteres especiais (\\ / : * ? \" < > |)!");
+    return;
+  }
+
+  var btn = document.getElementById("btn-create");
+  btn.disabled = true;
+  btn.innerText = "Criando...";
+
+  fetch('/api/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'name=' + encodeURIComponent(cardName)
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.status === 'ok') {
+      alert("Novo Memory Card '" + cardName + "' criado e formatado com sucesso!");
+      location.reload();
+    } else {
+      alert("Erro ao criar: " + (data.message || 'Falha'));
+      btn.disabled = false;
+      btn.innerText = "▲ Criar Memory Card";
+    }
+  })
+  .catch(err => {
+    alert("Erro na requisição: " + err);
+    btn.disabled = false;
+    btn.innerText = "▲ Criar Memory Card";
+  });
+}
+
+// Renomear Memory Card
+function renameCard(oldPath, oldName) {
+  var newName = prompt("Digite o novo nome para este Memory Card:", oldName);
+  if (!newName || newName.trim() === "" || newName.trim() === oldName) {
+    return;
+  }
+  newName = newName.trim();
+  if (/[\\/:*?"<>| ]/.test(newName)) {
+    alert("O novo nome não pode conter espaços nem caracteres especiais (\\ / : * ? \" < > |)!");
+    return;
+  }
+
+  fetch('/api/rename', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'old_path=' + encodeURIComponent(oldPath) + '&new_name=' + encodeURIComponent(newName)
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.status === 'ok') {
+      alert("Arquivo renomeado com sucesso!");
+      location.reload();
+    } else {
+      alert("Não foi possível renomear: " + (data.message || 'Erro'));
+    }
+  })
+  .catch(err => {
+    alert("Erro ao renomear: " + err);
+  });
+}
+
+// Desmontar / Ejetar Memory Card (Easter Egg Mantis)
+function ejectCard() {
+  if (!confirm("Deseja ejetar o Memory Card ativo e deixar a ranhura do console vazia?")) {
+    return;
+  }
+  fetch('/api/unload', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      showToast("\"I can read your mind! ...Wait, there is no Memory Card!\"");
+      setTimeout(function() {
+        location.reload();
+      }, 1800);
+    })
+    .catch(err => {
+      alert("Falha ao ejetar: " + err);
+    });
+}
+
+// Desmontar e Ejetar Cartão MicroSD com Segurança
+function ejectMicroSD() {
+  if (!confirm("Deseja realmente desmontar e ejetar o cartão MicroSD com segurança?\n\nQualquer gravação pendente será finalizada e você poderá retirar o cartão do videogame sem risco de corrupção.")) {
+    return;
+  }
+  var btn = document.getElementById("btn-eject-sd");
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = "Desmontando com segurança...";
+  }
+
+  fetch('/api/eject_sd', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      alert("✔ Cartão MicroSD desmontado com sucesso!\nVocê já pode remover o cartão fisicamente do console com segurança.");
+      fetchStatus();
+    })
+    .catch(err => {
+      alert("Aviso: " + err);
+    });
+}
+
+// Montar Cartão MicroSD Novamente (Sem reiniciar o videogame)
+function mountMicroSD() {
+  var btn = document.getElementById("btn-eject-sd");
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = "Montando cartão MicroSD...";
+  }
+
+  fetch('/api/mount_sd', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === 'ok') {
+        alert("✔ Cartão MicroSD montado com sucesso no console!");
+        fetchStatus();
+        setTimeout(() => location.reload(), 800);
+      } else {
+        alert("Falha ao montar cartão: " + (data.message || 'Verifique se o cartão está inserido.'));
+        fetchStatus();
+      }
+    })
+    .catch(err => {
+      alert("Erro ao tentar montar: " + err);
+      fetchStatus();
+    });
+}
+
+// Formatar Bytes
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
   var k = 1024;
@@ -343,17 +705,51 @@ function fetchStatus() {
     .then(r => r.json())
     .then(data => {
       // SD
-      if (data.sd_total > 0) {
+      var badge = document.getElementById('sd-status-badge');
+      var btnEjectSd = document.getElementById('btn-eject-sd');
+      var t = I18N;
+      if (data.sd_mounted === false || data.sd_total === 0) {
+        document.getElementById('sd-percent').innerText = 'Desmontado';
+        document.getElementById('sd-bar').style.width = '0%';
+        document.getElementById('sd-free').innerText = '-';
+        document.getElementById('sd-total').innerText = '-';
+        document.getElementById('ps1-estimate').innerText = 'Nenhum';
+        document.getElementById('ps2-estimate').innerText = 'Nenhum';
+        if (badge) badge.innerHTML = '<span class="tag tag-file" style="background:rgba(255,59,48,0.2); color:#ff6b6b; border:1px solid rgba(255,59,48,0.4);">Desmontado</span>';
+        if (btnEjectSd) {
+          btnEjectSd.disabled = false;
+          btnEjectSd.innerHTML = '<span>🔄</span> <span>' + (t.btn_remount_sd || 'Montar Cartão SD') + '</span>';
+          btnEjectSd.style.background = 'rgba(0,230,118,0.15)';
+          btnEjectSd.style.color = 'var(--ps-green)';
+          btnEjectSd.style.borderColor = 'var(--ps-green)';
+          btnEjectSd.onclick = mountMicroSD;
+        }
+      } else {
+        if (btnEjectSd) {
+          btnEjectSd.disabled = false;
+          btnEjectSd.innerHTML = '<span>⏏</span> <span>' + (t.btn_eject_sd || 'Desmontar Cartão SD') + '</span>';
+          btnEjectSd.style.background = 'rgba(255,59,48,0.15)';
+          btnEjectSd.style.color = '#ff6b6b';
+          btnEjectSd.style.borderColor = 'rgba(255,59,48,0.4)';
+          btnEjectSd.onclick = ejectMicroSD;
+        }
         var used = data.sd_total - data.sd_free;
         var pct = ((used / data.sd_total) * 100).toFixed(1);
         document.getElementById('sd-percent').innerText = pct + '% usado';
         document.getElementById('sd-bar').style.width = pct + '%';
         document.getElementById('sd-free').innerText = formatBytes(data.sd_free);
         document.getElementById('sd-total').innerText = formatBytes(data.sd_total);
+
+        // Estimativa de Saves
+        var ps1Saves = Math.floor(data.sd_free / 131072);
+        var ps2Saves = Math.floor(data.sd_free / (8 * 1024 * 1024));
+        document.getElementById('ps1-estimate').innerText = '~' + ps1Saves.toLocaleString() + ' saves';
+        document.getElementById('ps2-estimate').innerText = '~' + ps2Saves.toLocaleString() + ' saves';
+        if (badge) badge.innerHTML = '<span class="tag tag-mc">Montado</span>';
       }
       // Wi-Fi
       document.getElementById('wifi-mode-text').innerText = data.wifi_mode === 1 ? 'Cliente (Conectado ao Roteador)' : 'Ponto de Acesso (AP Próprio)';
-      document.getElementById('wifi-ssid-text').innerText = data.ssid || 'openmc';
+      document.getElementById('wifi-ssid-text').innerText = data.ssid || 'WirelessMC';
       document.getElementById('wifi-ip-text').innerText = data.ip || window.location.hostname;
       if (data.wifi_mode === 1) {
         document.getElementById('wifi-rssi-text').innerText = data.rssi + ' dBm ' + (data.rssi > -60 ? '(Excelente)' : data.rssi > -75 ? '(Bom)' : '(Fraco)');
@@ -361,15 +757,29 @@ function fetchStatus() {
         document.getElementById('wifi-rssi-text').innerText = 'Ponto de Acesso Ativo';
       }
       // Hardware
-      document.getElementById('heap-free-text').innerText = formatBytes(data.heap_free) + ' (Mín: ' + formatBytes(data.heap_min) + ')';
+      if (data.chip) {
+        document.getElementById('chip-model-text').innerText = data.chip + ' (' + (data.cores || 2) + ' Cores)';
+      }
+      if (data.cpu_freq) {
+        document.getElementById('cpu-freq-text').innerText = data.cpu_freq + ' MHz';
+      }
+      if (data.flash_size) {
+        document.getElementById('flash-size-text').innerText = data.flash_size + ' MB (Flash SPI)';
+      }
+      if (data.ram_total) {
+        document.getElementById('heap-total-text').innerText = formatBytes(data.ram_total) + ' (DRAM)';
+      }
+      document.getElementById('heap-free-text').innerText = formatBytes(data.heap_free) + ' (Min: ' + formatBytes(data.heap_min) + ')';
       document.getElementById('uptime-text').innerText = formatUptime(data.uptime);
-      // Save Ativo
-      document.getElementById('loaded-file-text').innerText = data.loaded_file || 'Nenhum';
-      document.getElementById('total-saves-text').innerText = (data.mc_count || '0') + ' saves';
       
-      // Preencher formulário de configuração com valores atuais se vazios
+      // Saves por console (PS1 e PS2)
+      var ps1 = data.ps1_count !== undefined ? data.ps1_count : (data.mc_count || 0);
+      var ps2 = data.ps2_count !== undefined ? data.ps2_count : 0;
+      document.getElementById('total-saves-text').innerText = (data.mc_count || '0') + ' saves (' + ps1 + ' PS1 • ' + ps2 + ' PS2)';
+      
+      // Preencher formulário de configuração com valores se vazios
       if (!document.getElementById('cfg-ssid').value) {
-        document.getElementById('cfg-ssid').value = data.ssid || '';
+        document.getElementById('cfg-ssid').value = data.ssid || 'WirelessMC';
         if (data.wifi_mode === 0) {
           document.getElementById('mode-ap').checked = true;
         } else {
@@ -383,16 +793,16 @@ function fetchStatus() {
     });
 }
 
-// Alternar modo no formulário de configuração
 function toggleConfigMode() {
   var isAp = document.getElementById('mode-ap').checked;
   var hint = document.getElementById('pass-hint');
   var passInput = document.getElementById('cfg-pass');
+  var t = I18N;
   if (isAp) {
-    hint.innerText = "No modo Ponto de Acesso, a senha padrão é 'ps1devrulezdude!'.";
-    if (!passInput.value) passInput.value = "ps1devrulezdude!";
+    hint.innerText = t.pass_hint_ap || "No modo Ponto de Acesso, a senha padrão é 'SenhaDificil!'.";
+    if (!passInput.value) passInput.value = "SenhaDificil!";
   } else {
-    hint.innerText = "No modo Cliente, digite a senha da sua rede doméstica.";
+    hint.innerText = t.pass_hint_client || "No modo Cliente, digite a senha da sua rede doméstica.";
   }
 }
 
@@ -401,7 +811,6 @@ function togglePassVisibility() {
   p.type = p.type === 'password' ? 'text' : 'password';
 }
 
-// Salvar Configurações
 function saveConfig(e) {
   e.preventDefault();
   var mode = document.querySelector('input[name="wifi_mode"]:checked').value;
@@ -436,7 +845,7 @@ function saveConfig(e) {
     alertBox.style.background = 'rgba(0,230,118,0.15)';
     alertBox.style.color = 'var(--ps-green)';
     alertBox.style.border = '1px solid var(--ps-green)';
-    alertBox.innerHTML = '✔ Configurações gravadas com sucesso no <code>/sdcard/config.txt</code>!<br>Clique no botão <b>Reiniciar OpenMC</b> para aplicar as alterações na rede.';
+    alertBox.innerHTML = '✔ Configurações gravadas com sucesso no <code>/sdcard/config.txt</code>!<br>Clique no botão <b>Reiniciar OpenWirelessMC</b> para aplicar as alterações na rede.';
   })
   .catch(err => {
     alertBox.style.background = 'rgba(255,59,48,0.15)';
@@ -446,9 +855,8 @@ function saveConfig(e) {
   });
 }
 
-// Reiniciar Dispositivo
 function rebootOpenMC() {
-  if (!confirm("Deseja realmente reiniciar o OpenMC agora para aplicar as novas configurações de rede?")) {
+  if (!confirm("Deseja realmente reiniciar o OpenWirelessMC agora para aplicar as novas configurações de rede?")) {
     return;
   }
   var alertBox = document.getElementById('config-alert');
@@ -456,7 +864,7 @@ function rebootOpenMC() {
   alertBox.style.background = 'rgba(255,64,129,0.15)';
   alertBox.style.color = 'var(--ps-pink)';
   alertBox.style.border = '1px solid var(--ps-pink)';
-  alertBox.innerText = 'Reiniciando o OpenMC... Aguarde 5 segundos para reconectar.';
+  alertBox.innerText = 'Reiniciando... Aguarde 5 segundos para reconectar.';
 
   fetch('/api/reboot', { method: 'POST' })
     .then(r => r.json())
@@ -465,7 +873,7 @@ function rebootOpenMC() {
       var timer = setInterval(function() {
         count--;
         if (count > 0) {
-          alertBox.innerText = 'Reiniciando o OpenMC... Aguarde ' + count + ' segundos para reconectar.';
+          alertBox.innerText = 'Reiniciando... Aguarde ' + count + ' segundos para reconectar.';
         } else {
           clearInterval(timer);
           location.href = '/';
@@ -477,9 +885,37 @@ function rebootOpenMC() {
     });
 }
 
-// Carregar status inicial em segundo plano
+// Carregar Banco de Dados Global de Títulos (titles.db) do SD
+function loadGameDatabase() {
+  fetch('/titles.db')
+    .then(function(r) {
+      if (r.ok) return r.text();
+      throw new Error('titles.db não encontrado');
+    })
+    .then(function(text) {
+      var lines = text.split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (!line || line.charCodeAt(0) === 35) continue;
+        var eq = line.indexOf('=');
+        if (eq > 0) {
+          var id = line.substring(0, eq).trim().toUpperCase();
+          var title = line.substring(eq + 1).trim();
+          GAME_DB[id] = title;
+        }
+      }
+      populateGameTitles();
+    })
+    .catch(function(err) {
+      // Fallback para os títulos já pré-carregados no dicionário
+      populateGameTitles();
+    });
+}
+
 window.addEventListener('DOMContentLoaded', function() {
+  applyTranslations();
   fetchStatus();
+  loadGameDatabase();
 });
 </script>
 </body>

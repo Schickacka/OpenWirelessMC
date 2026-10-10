@@ -76,7 +76,7 @@ namespace openmc
                 }
             }
 
-            void Init(void)
+            bool Init(void)
             {
                 // Initialize NVS
                 esp_err_t ret = nvs_flash_init();
@@ -91,10 +91,23 @@ namespace openmc
 
                 s_wifi_event_group = xEventGroupCreate();
 
-                ESP_ERROR_CHECK(esp_netif_init());
+                ret = esp_netif_init();
+                if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE)
+                {
+                    ESP_ERROR_CHECK(ret);
+                }
 
-                ESP_ERROR_CHECK(esp_event_loop_create_default());
-                esp_netif_create_default_wifi_sta();
+                ret = esp_event_loop_create_default();
+                if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE)
+                {
+                    ESP_ERROR_CHECK(ret);
+                }
+
+                esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
+                if (sta_netif)
+                {
+                    esp_netif_set_hostname(sta_netif, "wirelessmc");
+                }
 
                 wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
                 ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -117,35 +130,45 @@ namespace openmc
 
                 ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
                 ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+                s_retry_num = 0;
                 ESP_ERROR_CHECK(esp_wifi_start());
 
-                ESP_LOGI(kLogPrefix, "Init finished.");
+                ESP_LOGI(kLogPrefix, "Init finished. Waiting for connection...");
 
-                // Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
-                // number of re-tries (WIFI_FAIL_BIT). The bits are set by event_handler() (see above)
-                EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
+                // Waiting up to 45 seconds for connection or failure
+                EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, pdFALSE, pdFALSE, pdMS_TO_TICKS(45000));
 
-                // xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
-                // happened.
+                bool connected = false;
                 if (bits & WIFI_CONNECTED_BIT)
                 {
-                    ESP_LOGI(kLogPrefix, "connected to ap SSID:%s", wifi_config.sta.ssid);
-
+                    ESP_LOGI(kLogPrefix, "Connected to AP SSID:%s", wifi_config.sta.ssid);
                     wifi::ready = true;
-                }
-                else if (bits & WIFI_FAIL_BIT)
-                {
-                    ESP_LOGI(kLogPrefix, "Failed to connect to SSID:%s", wifi_config.sta.ssid);
+                    connected = true;
                 }
                 else
                 {
-                    ESP_LOGE(kLogPrefix, "UNEXPECTED EVENT");
+                    ESP_LOGW(kLogPrefix, "Failed or timed out connecting to SSID:%s", wifi_config.sta.ssid);
+                    wifi::ready = false;
+                    connected = false;
                 }
 
                 // The event will not be processed after unregister
                 ESP_ERROR_CHECK(esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, instance_got_ip));
                 ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, instance_any_id));
                 vEventGroupDelete(s_wifi_event_group);
+
+                if (!connected)
+                {
+                    ESP_LOGI(kLogPrefix, "Cleaning up STA interface for fallback...");
+                    esp_wifi_stop();
+                    esp_wifi_deinit();
+                    if (sta_netif)
+                    {
+                        esp_netif_destroy(sta_netif);
+                    }
+                }
+
+                return connected;
             }
         } // client
 

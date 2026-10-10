@@ -314,5 +314,67 @@ namespace openmc
 
       return LoadCardFromFile(target_path, sio::memory_card::memory_card_ram);
     }
+
+    bool UnloadCard()
+    {
+      ESP_LOGI(kLogPrefix, "UnloadCard: disabling MC emulation and clearing slot.\n");
+      // Flush any pending write if not yet committed
+      if (sio::memory_card::committed_to_storage == false && strlen(loaded_file_path) > 0)
+      {
+        WriteFile();
+        sio::memory_card::committed_to_storage = true;
+      }
+      sio::memory_card_enabled = false;
+      loaded_file_path[0] = '\0';
+      return true;
+    }
+
+    bool SafelyUnmountSD()
+    {
+      ESP_LOGI(kLogPrefix, "SafelyUnmountSD: committing saves and unmounting FATFS...\n");
+      // Flush any pending save before unmounting
+      if (sio::memory_card::committed_to_storage == false && strlen(loaded_file_path) > 0)
+      {
+        WriteFile();
+        sio::memory_card::committed_to_storage = true;
+      }
+      sio::memory_card_enabled = false;
+      loaded_file_path[0] = '\0';
+
+      if (storage::ready)
+      {
+        sdcard::unmount_sdcard();
+        storage::ready = false;
+      }
+      ESP_LOGI(kLogPrefix, "SafelyUnmountSD complete: SD is safe to remove.\n");
+      return true;
+    }
+
+    bool RemountSD()
+    {
+      ESP_LOGI(kLogPrefix, "RemountSD: attempting to remount MicroSD card...\n");
+      if (storage::ready)
+      {
+        return true;
+      }
+
+      if (sdcard::Init() == ESP_OK)
+      {
+        strcpy(storage::base_path, "/sdcard");
+        storage::ready = true;
+
+        // Try mounting default.mc
+        char target[CONFIG_FATFS_MAX_LFN + 1];
+        snprintf(target, sizeof(target), "%s/default.mc", storage::base_path);
+        LoadCardFromFile(target, sio::memory_card::memory_card_ram);
+        ESP_LOGI(kLogPrefix, "RemountSD: successfully remounted MicroSD card!\n");
+        return true;
+      }
+      else
+      {
+        ESP_LOGE(kLogPrefix, "RemountSD: failed to remount MicroSD card.\n");
+        return false;
+      }
+    }
   } // storage
 } // openmc

@@ -60,9 +60,23 @@ namespace openmc
 
                 ESP_LOGI(kLogPrefix, "ESP_WIFI_MODE_AP");
 
-                ESP_ERROR_CHECK(esp_netif_init());
-                ESP_ERROR_CHECK(esp_event_loop_create_default());
-                esp_netif_create_default_wifi_ap();
+                ret = esp_netif_init();
+                if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE)
+                {
+                    ESP_ERROR_CHECK(ret);
+                }
+
+                ret = esp_event_loop_create_default();
+                if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE)
+                {
+                    ESP_ERROR_CHECK(ret);
+                }
+
+                esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
+                if (ap_netif)
+                {
+                    esp_netif_set_hostname(ap_netif, "wirelessmc");
+                }
 
                 wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
                 ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -105,9 +119,12 @@ namespace openmc
                 ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
                 ESP_ERROR_CHECK(esp_wifi_start());
 
-                ESP_LOGI(kLogPrefix, "AP Started: SSID='%s' Password='%s' (len=%d) channel=%d", 
+                strcpy(wifi::ip_address, "192.168.4.1");
+                strcpy((char *)&wifi::ssid, (char *)system::settings.ssid);
+
+                ESP_LOGI(kLogPrefix, "AP Started: SSID='%s' Password='%s' (len=%d) channel=%d IP=%s", 
                          (char *)wifi_config.ap.ssid, (char *)wifi_config.ap.password, 
-                         strlen((char *)wifi_config.ap.password), wifi_config.ap.channel);
+                         strlen((char *)wifi_config.ap.password), wifi_config.ap.channel, wifi::ip_address);
 
                 wifi::ready = true;
             }

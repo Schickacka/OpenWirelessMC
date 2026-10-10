@@ -1,3 +1,3 @@
 #include "logging.h"
 
-const char *kLogPrefix = "openmc";
+const char *kLogPrefix = "openwirelessmc";

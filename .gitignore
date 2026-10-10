@@ -1,3 +1,28 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# ESP-IDF
 build/
 sdkconfig.old
-.vscode/settings.json
+sdkconfig.esp32dev.old
+
+# IDE & Editores
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Sistema Operacional
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Backups intermediários
+releases/history/

@@ -13,6 +13,7 @@ namespace openmc
 
             esp_err_t Init(void);
             void Task_MountSDCard(void *params);
+            void unmount_sdcard(void);
         } // sdcard
     } // storage
 } // openmc

@@ -17,6 +17,7 @@
 
 #include "baremetal_core1/core0_stall.h"
 #include "baremetal_core1/bare_metal_app_cpu.h"
+#include "mdns.h"
 
 #include <driver/gpio.h>
 #include <driver/uart.h>
@@ -29,6 +30,7 @@
 
 #include <sdkconfig.h>
 #include <stdio.h>
+#include <string.h>
 
 // Task sizes - there should be approximately 5% free space to allow for growth
 //#define FILE_WRITE_TASK_SIZE 1760
@@ -60,7 +62,7 @@ namespace openmc
 
     void main(void)
     {
-        ESP_LOGI(kLogPrefix, "=== OpenMC ULTIMATE PS1 Starting ===");
+        ESP_LOGI(kLogPrefix, "=== OpenWirelessMC Starting ===");
         sio::memory_card_enabled = true;
         sio::pad_enabled = false;
         sio::net_yaroze_enabled = false;
@@ -109,6 +111,28 @@ namespace openmc
             }
         }
 
+        // =========================================================================
+        // SIO & EMULAÇÃO DO MEMORY CARD INICIA IMEDIATAMENTE (ANTES DO WI-FI)!
+        // Isso garante que o PS1 encontre o Memory Card pronto em ~250ms de boot,
+        // muito antes da animação da Sony terminar (~5-6s).
+        // =========================================================================
+        sio::Init();       // Init the SIO state machine to a default state.
+        spi::Init();       // Setup the pins for bitbanged SPI
+        spi::Enable();     // Enable SPI
+        SetupInterrupts(); // Create a task to install our interrupt handler on Core 1
+
+        core0_stall_init();
+        start_app_cpu();   // Inicia o Core 1 baremetal para responder ao PS1
+
+        int64_t sio_ready_time_ms = esp_timer_get_time() / 1000LL;
+        ESP_LOGI(kLogPrefix, ">>> PS1 MEMORY CARD ONLINE & READY! Boot time: %lld ms <<<", sio_ready_time_ms);
+
+        // Auto-write task
+        xTaskCreatePinnedToCore(storage::Task_Write, "write_task_core_0", FILE_WRITE_TASK_SIZE, NULL, 0, NULL, 0);
+
+        gpio_set_direction(kSDPin_Detect, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(kSDPin_Detect, GPIO_PULLUP_ONLY);
+
         // Now start Wi-Fi according to config (either client or AP)
         if (system::settings.wifi_mode == wifi::Mode::kAcessPoint)
         {
@@ -118,23 +142,15 @@ namespace openmc
         else if (system::settings.wifi_mode == wifi::Mode::kClient)
         {
             ESP_LOGI(kLogPrefix, "Connecting to Wi-Fi client (SSID: %s)...", system::settings.ssid);
-            wifi::client::Init();
+            if (!wifi::client::Init())
+            {
+                ESP_LOGW(kLogPrefix, "Wi-Fi client connection failed! Falling back to Rescue AP Mode ('WirelessMC')...");
+                system::settings.wifi_mode = wifi::Mode::kAcessPoint;
+                strncpy((char *)system::settings.ssid, "WirelessMC", sizeof(system::settings.ssid));
+                strncpy((char *)system::settings.password, "SenhaDificil!", sizeof(system::settings.password));
+                wifi::access_point::Init();
+            }
         }
-
-        // Auto-write task
-        xTaskCreatePinnedToCore(storage::Task_Write, "write_task_core_0", FILE_WRITE_TASK_SIZE, NULL, 0, NULL, 0);
-
-        sio::Init();       // Init the SIO state machine to a default state.
-        spi::Init();       // Setup the pins for bitbanged SPI
-        spi::Enable();     // Enable SPI
-        SetupInterrupts(); // Create a task to install our interrupt handler on Core 1
-
-        core0_stall_init();
-        start_app_cpu();
-
-
-        gpio_set_direction(kSDPin_Detect, GPIO_MODE_INPUT);
-        gpio_set_pull_mode(kSDPin_Detect, GPIO_PULLUP_ONLY);
 
         if (system::settings.wifi_mode == wifi::Mode::kClient || system::settings.wifi_mode == wifi::Mode::kAcessPoint)
         {
@@ -145,7 +161,21 @@ namespace openmc
             }
 
             ESP_ERROR_CHECK(web::file_server::start_file_server(storage::base_path));
-            ESP_LOGI(kLogPrefix, "Web File Server started at http://192.168.4.1 !");
+            ESP_LOGI(kLogPrefix, "Web File Server started at http://%s !", wifi::ip_address);
+
+            // Initialize mDNS service (wirelessmc.local)
+            esp_err_t mdns_err = mdns_init();
+            if (mdns_err == ESP_OK)
+            {
+                mdns_hostname_set("wirelessmc");
+                mdns_instance_name_set("OpenWirelessMC Server");
+                mdns_service_add("OpenWirelessMC-Web", "_http", "_tcp", 80, NULL, 0);
+                ESP_LOGI(kLogPrefix, "mDNS responder started: http://wirelessmc.local/");
+            }
+            else
+            {
+                ESP_LOGW(kLogPrefix, "Failed to start mDNS responder: %d", mdns_err);
+            }
         }
 
         ESP_LOGI(kLogPrefix, "Minimum Free Heap = %i\n", esp_get_minimum_free_heap_size());
@@ -154,6 +184,6 @@ namespace openmc
 
 extern "C" void app_main(void)
 {
-    printf("\n\n>>> OpenMC app_main entered successfully! <<<\n\n");
+    printf("\n\n>>> OpenWirelessMC app_main entered successfully! <<<\n\n");
     openmc::main();
 }

@@ -8,7 +8,7 @@ namespace openmc
         namespace client
         {
             void Task_Start(void *params);
-            void Init(void);
+            bool Init(void);
         } // client
     } // wifi
 } // openmc

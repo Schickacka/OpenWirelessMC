@@ -10,8 +10,8 @@ namespace openmc
 
         void LoadDefaultSettings()
         {
-            static const uint8_t default_ssid[] = "openmc";
-            static const uint8_t default_password[] = "ps1devrulezdude!";
+            static const uint8_t default_ssid[] = "WirelessMC";
+            static const uint8_t default_password[] = "SenhaDificil!";
 
             settings.wifi_mode = wifi::Mode::kAcessPoint;
             memcpy(settings.ssid, default_ssid, sizeof(default_ssid));

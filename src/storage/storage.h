@@ -22,6 +22,9 @@ namespace openmc
     int WriteFile();
     bool SwitchToGameID(const char *game_id_str);
     bool CreateBlankFormattedCard(const char *filepath);
+    bool UnloadCard();
+    bool SafelyUnmountSD();
+    bool RemountSD();
   } // storage
 } // openmc
 
