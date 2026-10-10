@@ -81,27 +81,30 @@ namespace openmc
                     false};*/
 
                 wifi_config_t wifi_config;
+                memset(&wifi_config, 0, sizeof(wifi_config));
 
-                memcpy(wifi_config.ap.ssid, system::settings.ssid, sizeof(system::settings.ssid));
-                memcpy(wifi_config.ap.password, system::settings.password, sizeof(system::settings.password));
-
-                wifi_config.ap.channel = AP_WIFI_CHANNEL;
-                if (system::settings.password[0] == '\0')
-                {
-                    wifi_config.ap.authmode = WIFI_AUTH_OPEN;
-                }
-                wifi_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
+                strncpy((char *)wifi_config.ap.ssid, (const char *)system::settings.ssid, sizeof(wifi_config.ap.ssid));
+                wifi_config.ap.ssid_len = strlen((char *)wifi_config.ap.ssid);
+                strncpy((char *)wifi_config.ap.password, (const char *)system::settings.password, sizeof(wifi_config.ap.password));
+                wifi_config.ap.channel = 1; // Standard Channel 1 (broadest compatibility)
                 wifi_config.ap.ssid_hidden = 0;
                 wifi_config.ap.max_connection = 4;
                 wifi_config.ap.beacon_interval = 100;
-                wifi_config.ap.pairwise_cipher = WIFI_CIPHER_TYPE_TKIP_CCMP;
-                wifi_config.ap.ftm_responder = false;
+
+                if (strlen((char *)wifi_config.ap.password) == 0)
+                {
+                    wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+                }
+                else
+                {
+                    wifi_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
+                }
 
                 ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
                 ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
                 ESP_ERROR_CHECK(esp_wifi_start());
 
-                ESP_LOGI(kLogPrefix, "Init finished. SSID:%s password:%s channel:%d", system::settings.ssid, system::settings.password, AP_WIFI_CHANNEL);
+                ESP_LOGI(kLogPrefix, "Init finished. SSID:%s password:%s channel:%d", wifi_config.ap.ssid, wifi_config.ap.password, wifi_config.ap.channel);
 
                 wifi::ready = true;
             }
