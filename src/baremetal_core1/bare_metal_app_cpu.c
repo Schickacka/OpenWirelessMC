@@ -33,8 +33,13 @@
 #include "xt_instr_macros.h"
 #include "xtensa/config/specreg.h"
 #include <xtensa/xtensa_api.h>
+#include <xtensa/hal.h>
 #include <stdio.h>
 #include "esp32/rom/cache.h"
+
+#ifndef xt_int_enable_mask
+#define xt_int_enable_mask(mask) xthal_int_enable(mask)
+#endif
 
 #define BAREMETAL_APP_CPU_DEBUG 0
 
