@@ -390,6 +390,9 @@ static void do_secondary_init(void)
     do_system_init_fn();
 
 #if !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
+    // Core 1 is dedicated to baremetal, mark it inited so Pro CPU does not wait for it
+    s_system_inited[1] = true;
+
     // Wait for all cores to finish secondary init.
     volatile bool system_inited = false;
 

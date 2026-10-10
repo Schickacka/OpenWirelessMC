@@ -60,6 +60,7 @@ namespace openmc
 
     void main(void)
     {
+        ESP_LOGI(kLogPrefix, "=== OpenMC ULTIMATE PS1 Starting ===");
         sio::memory_card_enabled = true;
         sio::pad_enabled = false;
         sio::net_yaroze_enabled = false;
@@ -88,6 +89,21 @@ namespace openmc
         xTaskCreatePinnedToCore(touch_input::Task_TouchInput, "touch_pad_input_task_core_0", TOUCH_INPUT_TASK_SIZE, NULL, 0, NULL, 0);
 #endif
 
+        // Load defaults first so WiFi and settings are ready
+        system::LoadDefaultSettings();
+
+        // Start Wi-Fi Access Point immediately so user can connect even without SD
+        if (system::settings.wifi_mode == wifi::Mode::kAcessPoint)
+        {
+            ESP_LOGI(kLogPrefix, "Starting Wi-Fi Access Point (SSID: %s)...", system::settings.ssid);
+            wifi::access_point::Init();
+        }
+        else if (system::settings.wifi_mode == wifi::Mode::kClient)
+        {
+            ESP_LOGI(kLogPrefix, "Connecting to Wi-Fi client...");
+            wifi::client::Init();
+        }
+
         storage::Init();
 
         // Auto-write task
@@ -101,54 +117,33 @@ namespace openmc
         core0_stall_init();
         start_app_cpu();
 
-        // Load defaults so system is in a known state
-        system::LoadDefaultSettings();
-
         // Try loading config from /sdcard/config.txt, else defaults set above remain in place
-        storage::config::LoadConfig();
-
-#if ENABLE_OLED
-        gui::display_state = gui::DisplayState::kMainStatus;
-#endif
-
-        if (system::settings.wifi_mode == wifi::Mode::kClient)
+        if (storage::ready)
         {
-            wifi::client::Init();
+            storage::config::LoadConfig();
         }
-        else if (system::settings.wifi_mode == wifi::Mode::kAcessPoint)
-        {
-            wifi::access_point::Init();
-        }
-        // else
-        // {
-        //     // Wifi disabled
-        // }
 
         gpio_set_direction(kSDPin_Detect, GPIO_MODE_INPUT);
         gpio_set_pull_mode(kSDPin_Detect, GPIO_PULLUP_ONLY);
-
-        /*if (gpio_get_level(kSDPin_Detect) == 0)
-            printf("CARD DETECTED\n");
-        else
-            printf("card not present\n");
-        */
 
         if (system::settings.wifi_mode == wifi::Mode::kClient || system::settings.wifi_mode == wifi::Mode::kAcessPoint)
         {
             while (wifi::ready == false || storage::ready == false)
             {
-                vTaskDelay(1000 / portTICK_PERIOD_MS);
+                ESP_LOGI(kLogPrefix, "Waiting for SD card to mount before launching Web Server... (wifi=%d, storage=%d)", wifi::ready, storage::ready);
+                vTaskDelay(3000 / portTICK_PERIOD_MS);
             }
 
             ESP_ERROR_CHECK(web::file_server::start_file_server(storage::base_path));
+            ESP_LOGI(kLogPrefix, "Web File Server started at http://192.168.4.1 !");
         }
 
         ESP_LOGI(kLogPrefix, "Minimum Free Heap = %i\n", esp_get_minimum_free_heap_size());
     }
 }
 
-// Things.
-void app_main(void)
+extern "C" void app_main(void)
 {
+    printf("\n\n>>> OpenMC app_main entered successfully! <<<\n\n");
     openmc::main();
 }

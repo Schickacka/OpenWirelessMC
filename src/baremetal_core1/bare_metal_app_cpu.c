@@ -44,7 +44,7 @@
 #define BAREMETAL_APP_CPU_DEBUG 0
 
 // Reserve static data for built-in ROM functions
-#define APP_CPU_RESERVE_ROM_DATA 1
+#define APP_CPU_RESERVE_ROM_DATA 0
 
 #ifndef APP_CPU_STACK_SIZE
 #define APP_CPU_STACK_SIZE 512
@@ -60,7 +60,7 @@ extern int _vector_table;
 static volatile uint32_t app_cpu_stack_ptr;
 static volatile uint8_t app_cpu_initial_start;
 
-#ifdef APP_CPU_RESERVE_ROM_DATA
+#if APP_CPU_RESERVE_ROM_DATA
 SOC_RESERVE_MEMORY_REGION(0x3ffe3f20, 0x3ffe4350, rom_app_data);
 #endif
 
