@@ -86,10 +86,11 @@ namespace openmc
                 strncpy((char *)wifi_config.ap.ssid, (const char *)system::settings.ssid, sizeof(wifi_config.ap.ssid));
                 wifi_config.ap.ssid_len = strlen((char *)wifi_config.ap.ssid);
                 strncpy((char *)wifi_config.ap.password, (const char *)system::settings.password, sizeof(wifi_config.ap.password));
-                wifi_config.ap.channel = 1; // Standard Channel 1 (broadest compatibility)
+                wifi_config.ap.channel = 1;
                 wifi_config.ap.ssid_hidden = 0;
                 wifi_config.ap.max_connection = 4;
                 wifi_config.ap.beacon_interval = 100;
+                wifi_config.ap.pairwise_cipher = WIFI_CIPHER_TYPE_CCMP;
 
                 if (strlen((char *)wifi_config.ap.password) == 0)
                 {
@@ -104,7 +105,9 @@ namespace openmc
                 ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
                 ESP_ERROR_CHECK(esp_wifi_start());
 
-                ESP_LOGI(kLogPrefix, "Init finished. SSID:%s password:%s channel:%d", wifi_config.ap.ssid, wifi_config.ap.password, wifi_config.ap.channel);
+                ESP_LOGI(kLogPrefix, "AP Started: SSID='%s' Password='%s' (len=%d) channel=%d", 
+                         (char *)wifi_config.ap.ssid, (char *)wifi_config.ap.password, 
+                         strlen((char *)wifi_config.ap.password), wifi_config.ap.channel);
 
                 wifi::ready = true;
             }

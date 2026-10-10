@@ -89,10 +89,27 @@ namespace openmc
         xTaskCreatePinnedToCore(touch_input::Task_TouchInput, "touch_pad_input_task_core_0", TOUCH_INPUT_TASK_SIZE, NULL, 0, NULL, 0);
 #endif
 
-        // Load defaults first so WiFi and settings are ready
+        // Load default settings first (AP mode, SSID=openmc)
         system::LoadDefaultSettings();
 
-        // Start Wi-Fi Access Point immediately so user can connect even without SD
+        // Initialize SD card storage first so we can read /sdcard/config.txt if present
+        storage::Init();
+
+        // Try loading custom WiFi and mode settings from /sdcard/config.txt
+        if (storage::ready)
+        {
+            if (storage::config::LoadConfig())
+            {
+                ESP_LOGI(kLogPrefix, "Loaded custom settings from /sdcard/config.txt (mode=%d, ssid='%s')", 
+                         system::settings.wifi_mode, system::settings.ssid);
+            }
+            else
+            {
+                ESP_LOGI(kLogPrefix, "No /sdcard/config.txt found or invalid. Using default AP mode.");
+            }
+        }
+
+        // Now start Wi-Fi according to config (either client or AP)
         if (system::settings.wifi_mode == wifi::Mode::kAcessPoint)
         {
             ESP_LOGI(kLogPrefix, "Starting Wi-Fi Access Point (SSID: %s)...", system::settings.ssid);
@@ -100,11 +117,9 @@ namespace openmc
         }
         else if (system::settings.wifi_mode == wifi::Mode::kClient)
         {
-            ESP_LOGI(kLogPrefix, "Connecting to Wi-Fi client...");
+            ESP_LOGI(kLogPrefix, "Connecting to Wi-Fi client (SSID: %s)...", system::settings.ssid);
             wifi::client::Init();
         }
-
-        storage::Init();
 
         // Auto-write task
         xTaskCreatePinnedToCore(storage::Task_Write, "write_task_core_0", FILE_WRITE_TASK_SIZE, NULL, 0, NULL, 0);
@@ -117,11 +132,6 @@ namespace openmc
         core0_stall_init();
         start_app_cpu();
 
-        // Try loading config from /sdcard/config.txt, else defaults set above remain in place
-        if (storage::ready)
-        {
-            storage::config::LoadConfig();
-        }
 
         gpio_set_direction(kSDPin_Detect, GPIO_MODE_INPUT);
         gpio_set_pull_mode(kSDPin_Detect, GPIO_PULLUP_ONLY);

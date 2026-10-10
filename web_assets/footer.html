@@ -1,0 +1,486 @@
+    </div> <!-- Fechamento do card da tabela -->
+  </div> <!-- Fechamento da ABA 1 (tab-files) -->
+
+
+  <!-- ABA 2: STATUS DO SISTEMA -->
+  <div id="tab-status" class="tab-content">
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:16px;">
+      
+      <!-- Card: Armazenamento MicroSD -->
+      <div class="card">
+        <div class="card-title">
+          <span>💾</span> Cartão MicroSD (FatFS)
+        </div>
+        <div style="margin-bottom:12px;">
+          <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:6px;">
+            <span style="color:var(--text-muted);">Uso do Armazenamento</span>
+            <span id="sd-percent" style="font-weight:700; color:var(--ps-blue);">--%</span>
+          </div>
+          <div style="width:100%; height:10px; background:#14151a; border-radius:999px; overflow:hidden; border:1px solid var(--border);">
+            <div id="sd-bar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--ps-blue), var(--ps-green)); border-radius:999px; transition:width 0.4s ease;"></div>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:13px;">
+          <div style="background:#14151a; padding:10px; border-radius:var(--radius-sm); border:1px solid var(--border);">
+            <div style="color:var(--text-muted); font-size:11px;">ESPAÇO LIVRE</div>
+            <div id="sd-free" style="font-size:16px; font-weight:700; color:var(--ps-green);">Carregando...</div>
+          </div>
+          <div style="background:#14151a; padding:10px; border-radius:var(--radius-sm); border:1px solid var(--border);">
+            <div style="color:var(--text-muted); font-size:11px;">CAPACIDADE TOTAL</div>
+            <div id="sd-total" style="font-size:16px; font-weight:700; color:#fff;">Carregando...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card: Wi-Fi & Conexão -->
+      <div class="card">
+        <div class="card-title">
+          <span>📶</span> Conexão Wi-Fi
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px; font-size:13px;">
+          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted);">Modo de Operação:</span>
+            <span id="wifi-mode-text" style="font-weight:600; color:#fff;">--</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted);">Rede (SSID):</span>
+            <span id="wifi-ssid-text" style="font-weight:600; color:var(--ps-blue);">--</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted);">Endereço IP:</span>
+            <span id="wifi-ip-text" style="font-weight:600; color:var(--ps-green); font-family:monospace;">--</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted);">Qualidade do Sinal (RSSI):</span>
+            <span id="wifi-rssi-text" style="font-weight:600;">--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card: Hardware ESP32 & Desempenho -->
+      <div class="card">
+        <div class="card-title">
+          <span>⚡</span> Hardware & Processador
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px; font-size:13px;">
+          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted);">Chipset:</span>
+            <span style="font-weight:600; color:#fff;">ESP32-D0WD-V3 (Dual Core)</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted);">Arquitetura:</span>
+            <span style="font-weight:600; color:var(--ps-blue);">Core 0 FreeRTOS + Core 1 Baremetal SIO</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted);">Memória RAM Livre:</span>
+            <span id="heap-free-text" style="font-weight:600; color:var(--ps-green);">--</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted);">Tempo Ativo (Uptime):</span>
+            <span id="uptime-text" style="font-weight:600; color:#fff;">--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card: Estado do Memory Card Ativo -->
+      <div class="card">
+        <div class="card-title">
+          <span>🕹️</span> Memory Card Virtual
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px; font-size:13px;">
+          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted);">Slot Virtual:</span>
+            <span style="font-weight:600; color:var(--ps-green);">Slot 1 (PU-8 / SCPH-3500)</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted);">Save Engatado:</span>
+            <span id="loaded-file-text" style="font-weight:700; color:var(--ps-pink); font-family:monospace;">--</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted);">PicoStation GameID Switch:</span>
+            <span style="font-weight:600; color:var(--ps-green);">Ativo (Cmd 0x21)</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted);">Total de Saves no SD:</span>
+            <span id="total-saves-text" style="font-weight:600; color:var(--ps-blue);">--</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ABA 3: CONFIGURAÇÕES DE REDE -->
+  <div id="tab-config" class="tab-content">
+    <div class="card" style="max-width:650px; margin:0 auto;">
+      <div class="card-title">
+        <span>⚙️</span> Configurações de Conexão Wi-Fi
+      </div>
+      <p style="font-size:13px; color:var(--text-muted); margin-bottom:18px;">
+        As alterações feitas aqui são salvas diretamente no arquivo <code>/sdcard/config.txt</code> do MicroSD. Ao reiniciar o console ou clicar no botão abaixo, a nova rede entrará em vigor automaticamente.
+      </p>
+
+      <form id="config-form" onsubmit="saveConfig(event)">
+        <!-- Seletor de Modo -->
+        <div style="margin-bottom:16px;">
+          <label style="display:block; font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:8px;">
+            MODO DE OPERAÇÃO WI-FI
+          </label>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <label style="display:flex; align-items:center; gap:8px; padding:12px; background:#14151a; border:1px solid var(--border); border-radius:var(--radius-md); cursor:pointer;">
+              <input type="radio" name="wifi_mode" value="client" id="mode-client" checked onchange="toggleConfigMode()">
+              <div>
+                <div style="font-size:13px; font-weight:600; color:#fff;">Modo Cliente</div>
+                <div style="font-size:11px; color:var(--text-muted);">Conectar no Wi-Fi de Casa</div>
+              </div>
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; padding:12px; background:#14151a; border:1px solid var(--border); border-radius:var(--radius-md); cursor:pointer;">
+              <input type="radio" name="wifi_mode" value="ap" id="mode-ap" onchange="toggleConfigMode()">
+              <div>
+                <div style="font-size:13px; font-weight:600; color:#fff;">Ponto de Acesso (AP)</div>
+                <div style="font-size:11px; color:var(--text-muted);">Rede Própria 'openmc'</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Nome da Rede (SSID) -->
+        <div class="form-group" style="margin-bottom:16px;">
+          <label for="cfg-ssid" style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px; display:block;">
+            NOME DA REDE WI-FI (SSID)
+          </label>
+          <input type="text" id="cfg-ssid" class="form-control" required placeholder="ex: MinhaRedeWifi">
+        </div>
+
+        <!-- Senha da Rede -->
+        <div class="form-group" style="margin-bottom:20px;">
+          <label for="cfg-pass" style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px; display:block;">
+            SENHA DO WI-FI
+          </label>
+          <div style="position:relative;">
+            <input type="password" id="cfg-pass" class="form-control" placeholder="Mínimo 8 caracteres" style="padding-right:45px;">
+            <button type="button" onclick="togglePassVisibility()" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px;">👁️</button>
+          </div>
+          <div id="pass-hint" style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+            Para o modo Cliente, coloque a senha da sua rede doméstica.
+          </div>
+        </div>
+
+        <div id="config-alert" style="display:none; padding:12px; border-radius:var(--radius-md); font-size:13px; margin-bottom:16px;"></div>
+
+        <!-- Botões de Ação -->
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+          <button type="submit" class="btn btn-blue" style="flex:1;">
+            <span>💾</span> Salvar Configuração no SD
+          </button>
+          <button type="button" class="btn btn-red" onclick="rebootOpenMC()">
+            <span>🔄</span> Reiniciar OpenMC
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- ABA 4: FAQ & MANUAL PLAYSTATION 1 -->
+  <div id="tab-faq" class="tab-content">
+    
+    <div class="card">
+      <div class="card-title">
+        <span>🎮</span> Integração com o PicoStation ODE (Auto GameID)
+      </div>
+      <p style="font-size:14px; color:#cbd5e1; margin-bottom:10px;">
+        O OpenMC possui compatibilidade direta e nativa com o PicoStation ODE via comando serial SIO <code>0x21</code>.
+      </p>
+      <ul style="font-size:13px; color:var(--text-muted); padding-left:20px; line-height:1.7;">
+        <li>Ao iniciar qualquer jogo pelo menu do PicoStation, o console envia automaticamente o Game ID oficial (exemplo: <code>SLUS-00005</code> ou <code>SCUS-94183</code>).</li>
+        <li>O OpenMC intercepta esse comando e engata imediatamente o cartão virtual <code>&lt;GAME_ID&gt;.mc</code> no Slot 1.</li>
+        <li>Se você estiver jogando aquele game pela primeira vez e o arquivo não existir no MicroSD, o OpenMC cria instantaneamente uma imagem formatada virgem de 128KB!</li>
+        <li>Isso garante que <b>cada jogo tenha seu próprio Memory Card virtual de 15 blocos dedicados</b>, sem limites de espaço!</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>💾</span> Formato e Estrutura dos Arquivos de Save
+      </div>
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px; margin-top:10px;">
+        <div style="background:#14151a; padding:14px; border-radius:var(--radius-md); border:1px solid var(--border);">
+          <div style="font-weight:700; color:var(--ps-green); font-size:14px; margin-bottom:6px;">Tamanho Exato: 128 KB</div>
+          <div style="font-size:12px; color:var(--text-muted); line-height:1.6;">
+            O PlayStation 1 requer imagens com tamanho exato de <b>131.072 bytes (128 KB)</b>. Elas contêm 16 quadros de 8KB (1 quadro de diretório/cabeçalho + 15 blocos utilizáveis).
+          </div>
+        </div>
+        <div style="background:#14151a; padding:14px; border-radius:var(--radius-md); border:1px solid var(--border);">
+          <div style="font-weight:700; color:var(--ps-blue); font-size:14px; margin-bottom:6px;">Extensões Compatíveis</div>
+          <div style="font-size:12px; color:var(--text-muted); line-height:1.6;">
+            Arquivos com extensões <code>.mc</code>, <code>.mcr</code> e <code>.mcd</code> são reconhecidos nativamente. O padrão do OpenMC é <code>.mc</code>.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>🔄</span> Como Usar Saves de Emuladores (DuckStation / Mednafen / MemcardRex)
+      </div>
+      <ol style="font-size:13px; color:var(--text-muted); padding-left:20px; line-height:1.8;">
+        <li>Exporte ou localize o arquivo de Memory Card do emulador no seu computador (ele deve ter 128 KB).</li>
+        <li>Renomeie o arquivo para o formato desejado, preferencialmente o Game ID do jogo (ex: <code>SLUS-00005.mc</code> para Crash Bandicoot).</li>
+        <li>Acesse esta interface pelo navegador, abra a aba <b>Saves & Arquivos</b> e selecione o arquivo no formulário de envio.</li>
+        <li>Clique em <b>✖ Enviar Save</b>. O arquivo estará salvo no MicroSD do seu PS1!</li>
+        <li>Para forçar o carregamento imediato no console, basta clicar no botão <b>▲ Montar</b> na tabela.</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>🛡️</span> Boas Práticas e Dicas de Segurança
+      </div>
+      <ul style="font-size:13px; color:var(--text-muted); padding-left:20px; line-height:1.7;">
+        <li><b>Backups Simples:</b> Baixe periodicamente seus arquivos <code>.mc</code> clicando no nome deles na tabela para guardar uma cópia segura no seu computador ou na nuvem.</li>
+        <li><b>Nunca Desligue Durante a Gravação:</b> Quando um jogo do PS1 estiver salvando ("Salvando... Não desligue o console"), aguarde a mensagem de confirmação antes de desligar o console. O OpenMC grava os dados na memória RAM e sincroniza com o MicroSD logo em seguida.</li>
+        <li><b>Organização:</b> Pastas com o nome do Game ID são criadas automaticamente para organizar títulos multidiscos ou backups especiais.</li>
+      </ul>
+    </div>
+
+  </div>
+
+</div> <!-- Fechamento container -->
+
+<script>
+// Alternância de Abas
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  
+  var targetBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick').includes(tabId));
+  if (targetBtn) targetBtn.classList.add('active');
+  
+  var targetContent = document.getElementById('tab-' + tabId);
+  if (targetContent) targetContent.classList.add('active');
+
+  if (tabId === 'status') {
+    fetchStatus();
+  }
+}
+
+// Upload de Arquivos
+function setpath() {
+  var fileInput = document.getElementById("newfile");
+  if (fileInput.files.length > 0) {
+    document.getElementById("filepath").value = fileInput.files[0].name;
+  }
+}
+
+function upload() {
+  var filePath = document.getElementById("filepath").value.trim();
+  var fileInput = document.getElementById("newfile").files;
+
+  if (fileInput.length == 0) {
+    alert("Selecione um arquivo de save (.mc) primeiro!");
+    return;
+  }
+  if (!filePath) {
+    alert("Digite o nome do arquivo de destino!");
+    return;
+  }
+  if (filePath.indexOf(' ') >= 0) {
+    alert("O nome do arquivo não pode conter espaços!");
+    return;
+  }
+  if (fileInput[0].size > 128 * 1024) {
+    alert("O tamanho do save de PS1 deve ser no máximo 128 KB (131.072 bytes)!");
+    return;
+  }
+
+  var uploadBtn = document.getElementById("upload");
+  uploadBtn.disabled = true;
+  uploadBtn.innerText = "Enviando...";
+
+  var uploadPath = "/upload" + window.location.pathname;
+  if (!uploadPath.endsWith('/')) uploadPath += '/';
+  uploadPath += filePath;
+
+  var xhttp = new XMLHttpRequest();
+  xhttp.onreadystatechange = function () {
+    if (xhttp.readyState == 4) {
+      if (xhttp.status == 200 || xhttp.status == 303) {
+        alert("Save enviado com sucesso para o MicroSD!");
+        location.reload();
+      } else {
+        alert("Erro no envio: " + xhttp.status + "\n" + xhttp.responseText);
+        uploadBtn.disabled = false;
+        uploadBtn.innerText = "✖ Enviar Save";
+      }
+    }
+  };
+  xhttp.open("POST", uploadPath, true);
+  xhttp.send(fileInput[0]);
+}
+
+// Formatar Bytes em GB/MB/KB
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B';
+  var k = 1024;
+  var sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  var i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Formatar Uptime
+function formatUptime(seconds) {
+  var h = Math.floor(seconds / 3600);
+  var m = Math.floor((seconds % 3600) / 60);
+  var s = seconds % 60;
+  return (h > 0 ? h + 'h ' : '') + m + 'm ' + s + 's';
+}
+
+// Buscar Dados de Status via API
+function fetchStatus() {
+  fetch('/api/status')
+    .then(r => r.json())
+    .then(data => {
+      // SD
+      if (data.sd_total > 0) {
+        var used = data.sd_total - data.sd_free;
+        var pct = ((used / data.sd_total) * 100).toFixed(1);
+        document.getElementById('sd-percent').innerText = pct + '% usado';
+        document.getElementById('sd-bar').style.width = pct + '%';
+        document.getElementById('sd-free').innerText = formatBytes(data.sd_free);
+        document.getElementById('sd-total').innerText = formatBytes(data.sd_total);
+      }
+      // Wi-Fi
+      document.getElementById('wifi-mode-text').innerText = data.wifi_mode === 1 ? 'Cliente (Conectado ao Roteador)' : 'Ponto de Acesso (AP Próprio)';
+      document.getElementById('wifi-ssid-text').innerText = data.ssid || 'openmc';
+      document.getElementById('wifi-ip-text').innerText = data.ip || window.location.hostname;
+      if (data.wifi_mode === 1) {
+        document.getElementById('wifi-rssi-text').innerText = data.rssi + ' dBm ' + (data.rssi > -60 ? '(Excelente)' : data.rssi > -75 ? '(Bom)' : '(Fraco)');
+      } else {
+        document.getElementById('wifi-rssi-text').innerText = 'Ponto de Acesso Ativo';
+      }
+      // Hardware
+      document.getElementById('heap-free-text').innerText = formatBytes(data.heap_free) + ' (Mín: ' + formatBytes(data.heap_min) + ')';
+      document.getElementById('uptime-text').innerText = formatUptime(data.uptime);
+      // Save Ativo
+      document.getElementById('loaded-file-text').innerText = data.loaded_file || 'Nenhum';
+      document.getElementById('total-saves-text').innerText = (data.mc_count || '0') + ' saves';
+      
+      // Preencher formulário de configuração com valores atuais se vazios
+      if (!document.getElementById('cfg-ssid').value) {
+        document.getElementById('cfg-ssid').value = data.ssid || '';
+        if (data.wifi_mode === 0) {
+          document.getElementById('mode-ap').checked = true;
+        } else {
+          document.getElementById('mode-client').checked = true;
+        }
+        toggleConfigMode();
+      }
+    })
+    .catch(err => {
+      console.log('Aviso ao buscar /api/status:', err);
+    });
+}
+
+// Alternar modo no formulário de configuração
+function toggleConfigMode() {
+  var isAp = document.getElementById('mode-ap').checked;
+  var hint = document.getElementById('pass-hint');
+  var passInput = document.getElementById('cfg-pass');
+  if (isAp) {
+    hint.innerText = "No modo Ponto de Acesso, a senha padrão é 'ps1devrulezdude!'.";
+    if (!passInput.value) passInput.value = "ps1devrulezdude!";
+  } else {
+    hint.innerText = "No modo Cliente, digite a senha da sua rede doméstica.";
+  }
+}
+
+function togglePassVisibility() {
+  var p = document.getElementById('cfg-pass');
+  p.type = p.type === 'password' ? 'text' : 'password';
+}
+
+// Salvar Configurações
+function saveConfig(e) {
+  e.preventDefault();
+  var mode = document.querySelector('input[name="wifi_mode"]:checked').value;
+  var ssid = document.getElementById('cfg-ssid').value.trim();
+  var pass = document.getElementById('cfg-pass').value.trim();
+
+  if (!ssid) {
+    alert("O nome da rede (SSID) é obrigatório!");
+    return;
+  }
+  if (pass.length < 8 && pass.length > 0) {
+    alert("A senha de rede Wi-Fi deve ter no mínimo 8 caracteres!");
+    return;
+  }
+
+  var alertBox = document.getElementById('config-alert');
+  alertBox.style.display = 'block';
+  alertBox.style.background = 'rgba(41,121,255,0.15)';
+  alertBox.style.color = '#82b1ff';
+  alertBox.style.border = '1px solid var(--ps-blue)';
+  alertBox.innerText = 'Salvando configurações no MicroSD...';
+
+  var payload = "mode=" + encodeURIComponent(mode) + "&ssid=" + encodeURIComponent(ssid) + "&password=" + encodeURIComponent(pass);
+
+  fetch('/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: payload
+  })
+  .then(r => r.json())
+  .then(data => {
+    alertBox.style.background = 'rgba(0,230,118,0.15)';
+    alertBox.style.color = 'var(--ps-green)';
+    alertBox.style.border = '1px solid var(--ps-green)';
+    alertBox.innerHTML = '✔ Configurações gravadas com sucesso no <code>/sdcard/config.txt</code>!<br>Clique no botão <b>Reiniciar OpenMC</b> para aplicar as alterações na rede.';
+  })
+  .catch(err => {
+    alertBox.style.background = 'rgba(255,59,48,0.15)';
+    alertBox.style.color = '#ff6b6b';
+    alertBox.style.border = '1px solid var(--ps-red)';
+    alertBox.innerText = 'Erro ao salvar configurações no SD.';
+  });
+}
+
+// Reiniciar Dispositivo
+function rebootOpenMC() {
+  if (!confirm("Deseja realmente reiniciar o OpenMC agora para aplicar as novas configurações de rede?")) {
+    return;
+  }
+  var alertBox = document.getElementById('config-alert');
+  alertBox.style.display = 'block';
+  alertBox.style.background = 'rgba(255,64,129,0.15)';
+  alertBox.style.color = 'var(--ps-pink)';
+  alertBox.style.border = '1px solid var(--ps-pink)';
+  alertBox.innerText = 'Reiniciando o OpenMC... Aguarde 5 segundos para reconectar.';
+
+  fetch('/api/reboot', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      var count = 5;
+      var timer = setInterval(function() {
+        count--;
+        if (count > 0) {
+          alertBox.innerText = 'Reiniciando o OpenMC... Aguarde ' + count + ' segundos para reconectar.';
+        } else {
+          clearInterval(timer);
+          location.href = '/';
+        }
+      }, 1000);
+    })
+    .catch(e => {
+      setTimeout(() => { location.href = '/'; }, 4000);
+    });
+}
+
+// Carregar status inicial em segundo plano
+window.addEventListener('DOMContentLoaded', function() {
+  fetchStatus();
+});
+</script>
+</body>
+</html>

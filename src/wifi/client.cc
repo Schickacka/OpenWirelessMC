@@ -46,17 +46,20 @@ namespace openmc
                 }
                 else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
                 {
+                    wifi_event_sta_disconnected_t *disconn = (wifi_event_sta_disconnected_t *)event_data;
+                    ESP_LOGW(kLogPrefix, "Disconnected from AP, reason=%d (%s)", 
+                             disconn ? disconn->reason : -1,
+                             disconn ? (disconn->reason == 202 ? "AUTH_FAIL" : (disconn->reason == 201 ? "NO_AP_FOUND" : "DISCONNECT")) : "");
                     if (s_retry_num < EXAMPLE_ESP_MAXIMUM_RETRY)
                     {
                         esp_wifi_connect();
                         s_retry_num++;
-                        ESP_LOGI(kLogPrefix, "retry to connect to the AP");
+                        ESP_LOGI(kLogPrefix, "retry to connect to the AP (%d/%d)", s_retry_num, EXAMPLE_ESP_MAXIMUM_RETRY);
                     }
                     else
                     {
                         xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
                     }
-                    ESP_LOGI(kLogPrefix, "connect to the AP fail");
                 }
                 else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
                 {
@@ -102,19 +105,15 @@ namespace openmc
                 ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL, &instance_got_ip));
 
                 wifi_config_t wifi_config;
+                memset(&wifi_config, 0, sizeof(wifi_config));
 
-                memcpy(wifi_config.sta.ssid, system::settings.ssid, sizeof(system::settings.ssid));
-                memcpy(wifi_config.sta.password, system::settings.password, sizeof(system::settings.password));
-                wifi_config.sta.scan_method = WIFI_FAST_SCAN;
-                wifi_config.sta.bssid_set = 0;
-                wifi_config.sta.channel = 0;
-                wifi_config.sta.listen_interval = 0;
+                strncpy((char *)wifi_config.sta.ssid, (const char *)system::settings.ssid, sizeof(wifi_config.sta.ssid));
+                strncpy((char *)wifi_config.sta.password, (const char *)system::settings.password, sizeof(wifi_config.sta.password));
+                wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
                 wifi_config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+                wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
                 wifi_config.sta.pmf_cfg.capable = true;
                 wifi_config.sta.pmf_cfg.required = false;
-                wifi_config.sta.rm_enabled = 1;
-                wifi_config.sta.btm_enabled = 1;
-                wifi_config.sta.reserved = 30;
 
                 ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
                 ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));

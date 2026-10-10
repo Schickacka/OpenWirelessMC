@@ -1,84 +1,418 @@
-<table class="fixed" border="0">
-    <col width="1000px" />
-    <col width="500px" />
-    <tr>
-        <td>
-            <h2>OpenMC File Server</h2>
-        </td>
-        <td>
-            <table border="0">
-                <tr>
-                    <td>
-                        <label for="newfile">Upload a file</label>
-                    </td>
-                    <td colspan="2">
-                        <input id="newfile" type="file" onchange="setpath()" style="width:100%;">
-                    </td>
-                </tr>
-                <tr>
-                    <td>
-                        <label for="filepath">Target filename</label>
-                    </td>
-                    <td>
-                        <input id="filepath" type="text" style="width:100%;">
-                    </td>
-                    <td>
-                        <button id="upload" type="button" onclick="upload()">Upload</button>
-                    </td>
-                </tr>
-            </table>
-        </td>
-    </tr>
-</table>
-<script>
-    function setpath() {
-        var default_path = document.getElementById("newfile").files[0].name;
-        document.getElementById("filepath").value = default_path;
-    }
-    function upload() {
-        var filePath = document.getElementById("filepath").value;
-        var upload_path = "/upload" + window.location.href.toString().split(window.location.host)[1] + filePath;
-        var fileInput = document.getElementById("newfile").files;
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenMC • PS1 Wireless Memory Card</title>
+<style>
+:root {
+  --bg-dark: #121316;
+  --bg-card: #1c1e24;
+  --bg-card-hover: #242730;
+  --border: #2c2f38;
+  --text: #f0f2f5;
+  --text-muted: #9ba1ad;
+  --ps-green: #00e676; /* ▲ Triângulo */
+  --ps-pink: #ff4081;  /* ◼ Quadrado */
+  --ps-blue: #2979ff;  /* ✖ Xis */
+  --ps-red: #ff3b30;   /* ● Círculo */
+  --ps-grey: #8a8f9d;
+  --radius-lg: 14px;
+  --radius-md: 10px;
+  --radius-sm: 6px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--bg-dark);
+  color: var(--text);
+  line-height: 1.5;
+  padding: 16px;
+  min-height: 100vh;
+}
+.container {
+  max-width: 1050px;
+  margin: 0 auto;
+}
+/* Cabeçalho PlayStation Retrô */
+.ps-header {
+  background: linear-gradient(135deg, #181a20, #242732);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+.ps-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.ps-symbols {
+  display: inline-flex;
+  gap: 6px;
+  font-size: 20px;
+  font-weight: bold;
+}
+.sym-green { color: var(--ps-green); text-shadow: 0 0 10px rgba(0,230,118,0.4); }
+.sym-red   { color: var(--ps-red);   text-shadow: 0 0 10px rgba(255,59,48,0.4); }
+.sym-blue  { color: var(--ps-blue);  text-shadow: 0 0 10px rgba(41,121,255,0.4); }
+.sym-pink  { color: var(--ps-pink);  text-shadow: 0 0 10px rgba(255,64,129,0.4); }
 
-        /* Max size of an individual file. Make sure this
-         * value is same as that set in file_server.c */
-        var MAX_FILE_SIZE = 128 * 1024;
-        var MAX_FILE_SIZE_STR = "128KB";
+.ps-title h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #fff;
+}
+.ps-title p {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.ps-badge {
+  background: rgba(41, 121, 255, 0.15);
+  border: 1px solid var(--ps-blue);
+  color: #82b1ff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ps-green);
+  box-shadow: 0 0 8px var(--ps-green);
+}
 
-        if (fileInput.length == 0) {
-            alert("No file selected!");
-        } else if (filePath.length == 0) {
-            alert("File path on server is not set!");
-        } else if (filePath.indexOf(' ') >= 0) {
-            alert("File path on server cannot have spaces!");
-        } else if (filePath[filePath.length - 1] == '/') {
-            alert("File name not specified after path!");
-        } else if (fileInput[0].size > 128 * 1024) {
-            alert("File size must be less than 128KB!");
-        } else {
-            document.getElementById("newfile").disabled = true;
-            document.getElementById("filepath").disabled = true;
-            document.getElementById("upload").disabled = true;
+/* Barra de Abas (Tabs) */
+.ps-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.tab-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.tab-btn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text);
+  border-color: #3f4452;
+}
+.tab-btn.active {
+  background: #232733;
+  color: #fff;
+  border-color: var(--ps-blue);
+  box-shadow: 0 0 12px rgba(41,121,255,0.25);
+}
 
-            var file = fileInput[0];
-            var xhttp = new XMLHttpRequest();
-            xhttp.onreadystatechange = function () {
-                if (xhttp.readyState == 4) {
-                    if (xhttp.status == 200) {
-                        document.open();
-                        document.write(xhttp.responseText);
-                        document.close();
-                    } else if (xhttp.status == 0) {
-                        alert("Server closed the connection abruptly!");
-                        location.reload()
-                    } else {
-                        alert(xhttp.status + " Error!\n" + xhttp.responseText);
-                        location.reload()
-                    }
-                }
-            };
-            xhttp.open("POST", upload_path, true);
-            xhttp.send(file);
-        }
-    }
-</script>
+/* Conteúdo das Abas */
+.tab-content {
+  display: none;
+}
+.tab-content.active {
+  display: block;
+}
+
+/* Cards Gerais */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+}
+.card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Banner de Save Ativo */
+.loaded-card-bar {
+  background: linear-gradient(90deg, rgba(0,230,118,0.12), rgba(30,35,45,0.8));
+  border: 1px solid rgba(0,230,118,0.3);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.loaded-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.loaded-filename {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ps-green);
+  font-family: monospace;
+}
+
+/* Form de Upload Arredondado */
+.upload-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 12px;
+  align-items: end;
+}
+@media (max-width: 768px) {
+  .upload-grid { grid-template-columns: 1fr; }
+}
+.form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.form-control {
+  width: 100%;
+  padding: 10px 14px;
+  background: #131418;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.form-control:focus {
+  border-color: var(--ps-blue);
+}
+
+/* Botões Estilo PlayStation */
+.btn {
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+.btn-blue {
+  background: var(--ps-blue);
+  color: #fff;
+}
+.btn-blue:hover {
+  background: #1e60d4;
+  box-shadow: 0 0 12px rgba(41,121,255,0.4);
+}
+.btn-green {
+  background: rgba(0,230,118,0.15);
+  color: var(--ps-green);
+  border: 1px solid var(--ps-green);
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.btn-green:hover {
+  background: var(--ps-green);
+  color: #000;
+  box-shadow: 0 0 10px rgba(0,230,118,0.4);
+}
+.btn-red {
+  background: rgba(255,59,48,0.15);
+  color: #ff6b6b;
+  border: 1px solid rgba(255,59,48,0.4);
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.btn-red:hover {
+  background: var(--ps-red);
+  color: #fff;
+  box-shadow: 0 0 10px rgba(255,59,48,0.4);
+}
+
+/* Tabela de Arquivos Retrô Arredondada */
+.table-wrapper {
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: #16181d;
+}
+.ps-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 14px;
+}
+.ps-table th {
+  background: #1f222a;
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+.ps-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.ps-table tbody tr:hover {
+  background: rgba(255,255,255,0.03);
+}
+.ps-table a {
+  color: #82b1ff;
+  text-decoration: none;
+  font-weight: 500;
+}
+.ps-table a:hover {
+  text-decoration: underline;
+  color: #b3d1ff;
+}
+.tag {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+}
+.tag-mc {
+  background: rgba(0,230,118,0.15);
+  color: var(--ps-green);
+  border: 1px solid rgba(0,230,118,0.3);
+}
+.tag-dir {
+  background: rgba(41,121,255,0.15);
+  color: #82b1ff;
+}
+.tag-file {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-muted);
+}
+.actions-cell {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.path-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #14151a;
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.path-nav a {
+  color: var(--ps-blue);
+  text-decoration: none;
+  font-weight: 600;
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header PlayStation Retrô -->
+  <header class="ps-header">
+    <div class="ps-brand">
+      <div class="ps-symbols">
+        <span class="sym-green">▲</span>
+        <span class="sym-pink">■</span>
+        <span class="sym-blue">✖</span>
+        <span class="sym-red">●</span>
+      </div>
+      <div class="ps-title">
+        <h1>OpenMC • PS1 Memory Card</h1>
+        <p>SCPH-3500 Edition &bull; ESP32-D0WD &bull; PicoStation ODE Ready</p>
+      </div>
+    </div>
+    <div class="ps-badge">
+      <span class="badge-dot"></span>
+      <span>Wi-Fi Ativo</span>
+    </div>
+  </header>
+
+  <!-- Navegação por Abas -->
+  <nav class="ps-tabs">
+    <button class="tab-btn active" onclick="switchTab('files')">
+      <span>📁</span> Saves & Arquivos
+    </button>
+    <button class="tab-btn" onclick="switchTab('status')">
+      <span>📊</span> Status do Sistema
+    </button>
+    <button class="tab-btn" onclick="switchTab('config')">
+      <span>⚙️</span> Rede & Wi-Fi
+    </button>
+    <button class="tab-btn" onclick="switchTab('faq')">
+      <span>❓</span> FAQ & Manual PS1
+    </button>
+  </nav>
+
+  <!-- ABA 1: GERENCIADOR DE ARQUIVOS (INÍCIO) -->
+  <div id="tab-files" class="tab-content active">
+
+    <!-- Card de Upload com Cantos Arredondados -->
+    <div class="card">
+      <div class="card-title">
+        <span>📤</span> Enviar Novo Save para o MicroSD
+      </div>
+      <div class="upload-grid">
+        <div class="form-group">
+          <label for="newfile">Arquivo do Computador / Celular (.mc, .mcr, .mcd)</label>
+          <input id="newfile" type="file" class="form-control" onchange="setpath()">
+        </div>
+        <div class="form-group">
+          <label for="filepath">Nome do Arquivo de Destino</label>
+          <input id="filepath" type="text" class="form-control" placeholder="ex: SLUS-00005.mc">
+        </div>
+        <div>
+          <button id="upload" type="button" class="btn btn-blue" onclick="upload()">
+            <span>✖</span> Enviar Save
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabela de Arquivos do SD -->
+    <div class="card">
+      <div class="card-title" style="justify-content: space-between;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span>💾</span> Arquivos no Cartão MicroSD
+        </div>
+        <div id="file-counter" style="font-size:12px; color:var(--text-muted); font-weight:normal;"></div>
+      </div>
