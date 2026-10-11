@@ -131,16 +131,13 @@ namespace openmc
                 httpd_resp_send_chunk(req, (const char *)upload_script_start, upload_script_size);
 
                 // Send loaded file badge & current path navigation
-                httpd_resp_sendstr_chunk(req, "<div class=\"loaded-card-bar\"><div><div class=\"loaded-label\" data-i18n=\"active_mc_label\">Memory Card Ativo no Console</div><div class=\"loaded-filename\">");
+                httpd_resp_sendstr_chunk(req, "<div class=\"loaded-card-bar\"><div><div class=\"loaded-label\" data-i18n=\"active_mc_label\">");
                 if (strlen(storage::loaded_file_path) > 0) {
-                    httpd_resp_sendstr_chunk(req, "🎮 ");
+                    httpd_resp_sendstr_chunk(req, "Memory Card Ativo no Console</div><div class=\"loaded-filename\">🎮 ");
                     httpd_resp_sendstr_chunk(req, storage::loaded_file_path);
+                    httpd_resp_sendstr_chunk(req, "</div></div><div><button type=\"button\" class=\"btn btn-red\" onclick=\"ejectCard()\" style=\"padding:8px 14px; font-size:12px; display:inline-flex; align-items:center; gap:6px;\"><span style=\"font-size:14px;\">⏏</span> <span data-i18n=\"btn_eject\">Desmontar (Liberar Slot)</span></button></div>");
                 } else {
-                    httpd_resp_sendstr_chunk(req, "<span style=\"color:var(--text-muted); font-style:italic;\" data-i18n=\"empty_slot_desc\">📭 Nenhum (Ranhura Vazia)</span>");
-                }
-                httpd_resp_sendstr_chunk(req, "</div></div>");
-                if (strlen(storage::loaded_file_path) > 0) {
-                    httpd_resp_sendstr_chunk(req, "<div><button type=\"button\" class=\"btn btn-red\" onclick=\"ejectCard()\" style=\"padding:8px 14px; font-size:12px; display:inline-flex; align-items:center; gap:6px;\"><span style=\"font-size:14px;\">⏏</span> <span data-i18n=\"btn_eject\">Desmontar</span></button></div>");
+                    httpd_resp_sendstr_chunk(req, "Status do Slot no Console</div><div class=\"loaded-filename\"><span style=\"color:var(--text-muted); font-style:italic;\" data-i18n=\"empty_slot_desc\">📭 Nenhum Save Montado (Slot Liberado para Cartão Físico)</span></div></div>");
                 }
                 httpd_resp_sendstr_chunk(req, "</div>");
 

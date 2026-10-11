@@ -137,7 +137,7 @@ namespace openmc
       if (!mc_file)
       {
         ESP_LOGE(kLogPrefix, "Error opening file!\n");
-        sio::memory_card_enabled = old_mc_status;
+        sio::SetMemoryCardEmulation(old_mc_status);
         return false;
       }
       else
@@ -148,7 +148,7 @@ namespace openmc
         {
           ESP_LOGE(kLogPrefix, "File is empty\n");
           fclose(mc_file);
-          sio::memory_card_enabled = old_mc_status;
+          sio::SetMemoryCardEmulation(old_mc_status);
           return false;
         }
 
@@ -158,7 +158,7 @@ namespace openmc
         {
           ESP_LOGE(kLogPrefix, "Invalid File size!\n");
           fclose(mc_file);
-          sio::memory_card_enabled = old_mc_status;
+          sio::SetMemoryCardEmulation(old_mc_status);
           return false;
         }
 
@@ -179,7 +179,7 @@ namespace openmc
       // Can probably get away with less, but go a bit longer.
       // We need to miss at least one status check to initiate a proper refresh in bios.
       vTaskDelay(1337 / portTICK_PERIOD_MS);
-      sio::memory_card_enabled = old_mc_status;
+      sio::SetMemoryCardEmulation(true);
 
       return true;
     }
@@ -324,7 +324,7 @@ namespace openmc
         WriteFile();
         sio::memory_card::committed_to_storage = true;
       }
-      sio::memory_card_enabled = false;
+      sio::SetMemoryCardEmulation(false);
       loaded_file_path[0] = '\0';
       return true;
     }
@@ -338,7 +338,7 @@ namespace openmc
         WriteFile();
         sio::memory_card::committed_to_storage = true;
       }
-      sio::memory_card_enabled = false;
+      sio::SetMemoryCardEmulation(false);
       loaded_file_path[0] = '\0';
 
       if (storage::ready)

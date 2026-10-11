@@ -612,21 +612,21 @@ function renameCard(oldPath, oldName) {
   });
 }
 
-// Desmontar / Ejetar Memory Card (Easter Egg Mantis)
+// Desmontar Memory Card e Liberar Slot para Cartão Físico
 function ejectCard() {
-  if (!confirm("Deseja ejetar o Memory Card ativo e deixar a ranhura do console vazia?")) {
+  if (!confirm("Deseja desmontar o Memory Card ativo e liberar o slot para uso de um cartão físico?")) {
     return;
   }
   fetch('/api/unload', { method: 'POST' })
     .then(r => r.json())
     .then(data => {
-      showToast("\"I can read your mind! ...Wait, there is no Memory Card!\"");
+      showToast("🔌 Memory Card desmontado! Slot liberado para cartão físico.");
       setTimeout(function() {
         location.reload();
-      }, 1800);
+      }, 1000);
     })
     .catch(err => {
-      alert("Falha ao ejetar: " + err);
+      alert("Falha ao desmontar: " + err);
     });
 }
 
@@ -676,62 +676,6 @@ function mountMicroSD() {
       alert("Erro ao tentar montar: " + err);
       fetchStatus();
     });
-}
-
-// Alternar Emulação (OpenWirelessMC vs Memory Card Físico)
-function toggleSioEmulation() {
-  var btn = document.getElementById("btn-sio-toggle");
-  if (btn) btn.disabled = true;
-
-  fetch('/api/sio_toggle', { method: 'POST' })
-    .then(r => r.json())
-    .then(data => {
-      if (btn) btn.disabled = false;
-      updateSioUI(data.emulation_active);
-      if (data.emulation_active) {
-        showToast("🎮 OpenWirelessMC reativado! Saves do MicroSD emulados.");
-      } else {
-        showToast("🔌 OpenWirelessMC desconectado! Slot liberado para cartão físico.");
-      }
-    })
-    .catch(err => {
-      if (btn) btn.disabled = false;
-      alert("Erro ao alterar modo do OpenWirelessMC: " + err);
-    });
-}
-
-function updateSioUI(active) {
-  var icon = document.getElementById("sio-badge-icon");
-  var title = document.getElementById("sio-title");
-  var desc = document.getElementById("sio-desc");
-  var btn = document.getElementById("btn-sio-toggle");
-  var btnText = document.getElementById("btn-sio-text");
-
-  if (!title) return;
-
-  if (active) {
-    if (icon) icon.innerText = "🎮";
-    title.innerText = "Status OpenWirelessMC: Ativo";
-    title.style.color = "#fff";
-    if (desc) desc.innerText = "O emulador interno está respondendo ao console com os saves do MicroSD.";
-    if (btn) {
-      btn.className = "btn btn-blue";
-      if (btnText) btnText.innerText = "Liberar Slot para Cartão Físico";
-      var s = btn.querySelector("span:first-child");
-      if (s) s.innerText = "⏸️";
-    }
-  } else {
-    if (icon) icon.innerText = "🔌";
-    title.innerText = "Status OpenWirelessMC: Desconectado";
-    title.style.color = "var(--ps-pink)";
-    if (desc) desc.innerText = "Emulação interna pausada. O console pode acessar diretamente o Memory Card físico no slot!";
-    if (btn) {
-      btn.className = "btn btn-green";
-      if (btnText) btnText.innerText = "Reativar OpenWirelessMC";
-      var s = btn.querySelector("span:first-child");
-      if (s) s.innerText = "▶️";
-    }
-  }
 }
 
 // Formatar Bytes
@@ -829,10 +773,6 @@ function fetchStatus() {
       var ps2 = data.ps2_count !== undefined ? data.ps2_count : 0;
       document.getElementById('total-saves-text').innerText = (data.mc_count || '0') + ' saves (' + ps1 + ' PS1 • ' + ps2 + ' PS2)';
       
-      // Atualizar badge e botão de emulação do Slot 1
-      if (data.sio_emulation !== undefined) {
-        updateSioUI(data.sio_emulation);
-      }
 
       // Preencher formulário de configuração com valores se vazios
       if (!document.getElementById('cfg-ssid').value) {
