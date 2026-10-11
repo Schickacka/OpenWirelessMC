@@ -678,7 +678,7 @@ function mountMicroSD() {
     });
 }
 
-// Alternar Emulação do Slot 1 (OpenWirelessMC vs Memory Card Físico)
+// Alternar Emulação (OpenWirelessMC vs Memory Card Físico)
 function toggleSioEmulation() {
   var btn = document.getElementById("btn-sio-toggle");
   if (btn) btn.disabled = true;
@@ -689,14 +689,14 @@ function toggleSioEmulation() {
       if (btn) btn.disabled = false;
       updateSioUI(data.emulation_active);
       if (data.emulation_active) {
-        showToast("🎮 OpenWirelessMC reativado no Slot 1! Saves do SD emulados.");
+        showToast("🎮 OpenWirelessMC reativado! Saves do MicroSD emulados.");
       } else {
-        showToast("🔌 Slot 1 liberado para Memory Card físico! Emulação pausada.");
+        showToast("🔌 OpenWirelessMC desconectado! Slot liberado para cartão físico.");
       }
     })
     .catch(err => {
       if (btn) btn.disabled = false;
-      alert("Erro ao alterar modo do Slot 1: " + err);
+      alert("Erro ao alterar modo do OpenWirelessMC: " + err);
     });
 }
 
@@ -711,7 +711,7 @@ function updateSioUI(active) {
 
   if (active) {
     if (icon) icon.innerText = "🎮";
-    title.innerText = "Slot 1 (PS1): OpenWirelessMC Ativo";
+    title.innerText = "Status OpenWirelessMC: Ativo";
     title.style.color = "#fff";
     if (desc) desc.innerText = "O emulador interno está respondendo ao console com os saves do MicroSD.";
     if (btn) {
@@ -722,12 +722,12 @@ function updateSioUI(active) {
     }
   } else {
     if (icon) icon.innerText = "🔌";
-    title.innerText = "Slot 1 (PS1): Slot Físico Liberado";
+    title.innerText = "Status OpenWirelessMC: Desconectado";
     title.style.color = "var(--ps-pink)";
-    if (desc) desc.innerText = "Emulação interna pausada. O PS1 está acessando diretamente o Memory Card físico no slot!";
+    if (desc) desc.innerText = "Emulação interna pausada. O console pode acessar diretamente o Memory Card físico no slot!";
     if (btn) {
       btn.className = "btn btn-green";
-      if (btnText) btnText.innerText = "Reativar OpenWirelessMC no Slot 1";
+      if (btnText) btnText.innerText = "Reativar OpenWirelessMC";
       var s = btn.querySelector("span:first-child");
       if (s) s.innerText = "▶️";
     }
