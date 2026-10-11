@@ -112,7 +112,7 @@ namespace openmc
                 }
                 else
                 {
-                    wifi_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
+                    wifi_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
                 }
 
                 ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));

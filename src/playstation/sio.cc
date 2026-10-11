@@ -7,6 +7,7 @@
 #include "playstation/spi.h"
 
 #include <esp32/rom/ets_sys.h>
+#include <soc/gpio_struct.h>
 
 namespace openmc
 {
@@ -143,6 +144,22 @@ namespace openmc
             if (event_ticks == 0)
             {
                 memory_card::last_write_tick = 0;
+            }
+        }
+
+        void SetMemoryCardEmulation(bool enable)
+        {
+            if (enable)
+            {
+                memory_card_enabled = true;
+                spi::Enable();
+                GPIO.pin[kSEL_Pin].int_ena = BIT(0);
+            }
+            else
+            {
+                memory_card_enabled = false;
+                spi::Disable();
+                GPIO.pin[kSEL_Pin].int_ena = 0;
             }
         }
     } // namespace sio

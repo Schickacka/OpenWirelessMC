@@ -785,6 +785,23 @@ namespace openmc
                 }
             }
 
+            /* API Handler: POST /api/sio_toggle (Toggle Emulation vs Physical Card Passthrough) */
+            static esp_err_t api_sio_toggle_handler(httpd_req_t *req)
+            {
+                bool new_state = !sio::memory_card_enabled;
+                sio::SetMemoryCardEmulation(new_state);
+
+                ESP_LOGI(kLogPrefix, "SIO Mode toggled: %s", new_state ? "EMULATION ACTIVE" : "PASSTHROUGH / PHYSICAL CARD");
+
+                char resp[128];
+                snprintf(resp, sizeof(resp), "{\"status\":\"ok\",\"emulation_active\":%s}",
+                         new_state ? "true" : "false");
+
+                httpd_resp_set_type(req, "application/json");
+                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+                return httpd_resp_sendstr(req, resp);
+            }
+
             /* API Handler: POST /api/rename */
             static esp_err_t api_rename_handler(httpd_req_t *req)
             {
@@ -963,7 +980,7 @@ namespace openmc
                     "{\"sd_total\":%llu,\"sd_free\":%llu,\"sd_mounted\":%s,\"heap_free\":%u,\"heap_min\":%u,\"ram_total\":%u,"
                     "\"wifi_mode\":%d,\"ssid\":\"%s\",\"rssi\":%d,\"ip\":\"%s\","
                     "\"loaded_file\":\"%s\",\"uptime\":%lld,\"mc_count\":%d,\"ps1_count\":%d,\"ps2_count\":%d,"
-                    "\"chip\":\"%s\",\"cores\":%d,\"cpu_freq\":%u,\"flash_size\":%u}",
+                    "\"chip\":\"%s\",\"cores\":%d,\"cpu_freq\":%u,\"flash_size\":%u,\"sio_emulation\":%s}",
                     (unsigned long long)total_bytes, (unsigned long long)free_bytes,
                     storage::ready ? "true" : "false",
                     (unsigned int)esp_get_free_heap_size(), (unsigned int)esp_get_minimum_free_heap_size(),
@@ -972,7 +989,8 @@ namespace openmc
                     storage::loaded_file_path,
                     (long long)(esp_timer_get_time() / 1000000ULL),
                     (ps1_count + ps2_count), ps1_count, ps2_count,
-                    chip_desc, (int)chip_info.cores, (unsigned int)freq_cfg.freq_mhz, (unsigned int)(flash_size / (1024 * 1024)));
+                    chip_desc, (int)chip_info.cores, (unsigned int)freq_cfg.freq_mhz, (unsigned int)(flash_size / (1024 * 1024)),
+                    sio::memory_card_enabled ? "true" : "false");
 
                 httpd_resp_set_type(req, "application/json");
                 httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -1085,7 +1103,7 @@ namespace openmc
 
                 httpd_handle_t server = NULL;
                 httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-                config.max_uri_handlers = 16;
+                config.max_uri_handlers = 20;
 
                 // Use the URI wildcard matching function in order to
                 // allow the same handler to respond to multiple different
@@ -1163,6 +1181,14 @@ namespace openmc
                     .user_ctx = NULL
                 };
                 httpd_register_uri_handler(server, &api_mount_sd_uri);
+
+                httpd_uri_t api_sio_toggle_uri = {
+                    .uri = "/api/sio_toggle",
+                    .method = HTTP_POST,
+                    .handler = api_sio_toggle_handler,
+                    .user_ctx = NULL
+                };
+                httpd_register_uri_handler(server, &api_sio_toggle_uri);
 
                 // URI handler for getting uploaded files
                 httpd_uri_t file_download = {

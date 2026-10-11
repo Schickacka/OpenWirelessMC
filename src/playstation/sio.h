@@ -29,6 +29,7 @@ namespace openmc
         void Init();
         void ProcessEvents();
         void TickEventCounter();
+        void SetMemoryCardEmulation(bool enable);
     } // namespace sio
 } // namespace openmc
 

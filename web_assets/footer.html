@@ -678,6 +678,62 @@ function mountMicroSD() {
     });
 }
 
+// Alternar Emulação do Slot 1 (OpenWirelessMC vs Memory Card Físico)
+function toggleSioEmulation() {
+  var btn = document.getElementById("btn-sio-toggle");
+  if (btn) btn.disabled = true;
+
+  fetch('/api/sio_toggle', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (btn) btn.disabled = false;
+      updateSioUI(data.emulation_active);
+      if (data.emulation_active) {
+        showToast("🎮 OpenWirelessMC reativado no Slot 1! Saves do SD emulados.");
+      } else {
+        showToast("🔌 Slot 1 liberado para Memory Card físico! Emulação pausada.");
+      }
+    })
+    .catch(err => {
+      if (btn) btn.disabled = false;
+      alert("Erro ao alterar modo do Slot 1: " + err);
+    });
+}
+
+function updateSioUI(active) {
+  var icon = document.getElementById("sio-badge-icon");
+  var title = document.getElementById("sio-title");
+  var desc = document.getElementById("sio-desc");
+  var btn = document.getElementById("btn-sio-toggle");
+  var btnText = document.getElementById("btn-sio-text");
+
+  if (!title) return;
+
+  if (active) {
+    if (icon) icon.innerText = "🎮";
+    title.innerText = "Slot 1 (PS1): OpenWirelessMC Ativo";
+    title.style.color = "#fff";
+    if (desc) desc.innerText = "O emulador interno está respondendo ao console com os saves do MicroSD.";
+    if (btn) {
+      btn.className = "btn btn-blue";
+      if (btnText) btnText.innerText = "Liberar Slot para Cartão Físico";
+      var s = btn.querySelector("span:first-child");
+      if (s) s.innerText = "⏸️";
+    }
+  } else {
+    if (icon) icon.innerText = "🔌";
+    title.innerText = "Slot 1 (PS1): Slot Físico Liberado";
+    title.style.color = "var(--ps-pink)";
+    if (desc) desc.innerText = "Emulação interna pausada. O PS1 está acessando diretamente o Memory Card físico no slot!";
+    if (btn) {
+      btn.className = "btn btn-green";
+      if (btnText) btnText.innerText = "Reativar OpenWirelessMC no Slot 1";
+      var s = btn.querySelector("span:first-child");
+      if (s) s.innerText = "▶️";
+    }
+  }
+}
+
 // Formatar Bytes
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
@@ -773,6 +829,11 @@ function fetchStatus() {
       var ps2 = data.ps2_count !== undefined ? data.ps2_count : 0;
       document.getElementById('total-saves-text').innerText = (data.mc_count || '0') + ' saves (' + ps1 + ' PS1 • ' + ps2 + ' PS2)';
       
+      // Atualizar badge e botão de emulação do Slot 1
+      if (data.sio_emulation !== undefined) {
+        updateSioUI(data.sio_emulation);
+      }
+
       // Preencher formulário de configuração com valores se vazios
       if (!document.getElementById('cfg-ssid').value) {
         document.getElementById('cfg-ssid').value = data.ssid || 'WirelessMC';

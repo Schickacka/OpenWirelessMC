@@ -154,10 +154,12 @@ namespace openmc
 
         if (system::settings.wifi_mode == wifi::Mode::kClient || system::settings.wifi_mode == wifi::Mode::kAcessPoint)
         {
-            while (wifi::ready == false || storage::ready == false)
+            int sd_wait_count = 0;
+            while (wifi::ready == false || (storage::ready == false && sd_wait_count < 3))
             {
-                ESP_LOGI(kLogPrefix, "Waiting for SD card to mount before launching Web Server... (wifi=%d, storage=%d)", wifi::ready, storage::ready);
-                vTaskDelay(3000 / portTICK_PERIOD_MS);
+                ESP_LOGI(kLogPrefix, "Waiting for network & storage ready... (wifi=%d, storage=%d)", wifi::ready, storage::ready);
+                vTaskDelay(2000 / portTICK_PERIOD_MS);
+                sd_wait_count++;
             }
 
             ESP_ERROR_CHECK(web::file_server::start_file_server(storage::base_path));
