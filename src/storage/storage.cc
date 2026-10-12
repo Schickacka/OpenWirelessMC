@@ -293,26 +293,74 @@ namespace openmc
         return false;
       }
 
-      char target_path[CONFIG_FATFS_MAX_LFN + 1];
-      snprintf(target_path, sizeof(target_path), "%s/%s.mc", base_path, game_id_str);
-
-      if (strcmp(loaded_file_path, target_path) == 0)
+      // Sanitize GameID (strip trailing spaces, CR, LF, nulls)
+      char clean_id[64];
+      size_t len = 0;
+      for (size_t i = 0; game_id_str[i] != '\0' && len < sizeof(clean_id) - 1; i++)
       {
-        ESP_LOGI(kLogPrefix, "GameID %s is already loaded.\n", game_id_str);
+        char c = game_id_str[i];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')
+        {
+          clean_id[len++] = c;
+        }
+      }
+      clean_id[len] = '\0';
+
+      if (len == 0)
+      {
+        ESP_LOGW(kLogPrefix, "SwitchToGameID: Invalid/empty sanitized GameID.\n");
+        return false;
+      }
+
+      ESP_LOGI(kLogPrefix, "SwitchToGameID: Resolving save file for GameID '%s'...\n", clean_id);
+
+      // Search candidates in order of priority:
+      // 1. <GameID>-1.mc (PSxMemCard Gen2 standard channel)
+      // 2. <GameID>.mc
+      // 3. <GameID>-1.mcd
+      // 4. <GameID>.mcd
+      // 5. <GameID>-1.mcr
+      // 6. <GameID>.mcr
+      const char *suffixes[] = {
+        "-1.mc",
+        ".mc",
+        "-1.mcd",
+        ".mcd",
+        "-1.mcr",
+        ".mcr"
+      };
+
+      char found_path[CONFIG_FATFS_MAX_LFN + 1];
+      bool file_exists = false;
+
+      for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++)
+      {
+        snprintf(found_path, sizeof(found_path), "%s/%s%s", base_path, clean_id, suffixes[i]);
+        FILE *f = fopen(found_path, "rb");
+        if (f)
+        {
+          fclose(f);
+          file_exists = true;
+          ESP_LOGI(kLogPrefix, "SwitchToGameID: Found existing save file '%s'!\n", found_path);
+          break;
+        }
+      }
+
+      // If no candidate exists, create default <GameID>-1.mc
+      if (!file_exists)
+      {
+        snprintf(found_path, sizeof(found_path), "%s/%s-1.mc", base_path, clean_id);
+        ESP_LOGI(kLogPrefix, "SwitchToGameID: No existing save file found. Creating '%s'...\n", found_path);
+        CreateBlankFormattedCard(found_path);
+      }
+
+      if (strcmp(loaded_file_path, found_path) == 0)
+      {
+        ESP_LOGI(kLogPrefix, "GameID save %s is already loaded.\n", found_path);
         return true;
       }
 
-      FILE *check = fopen(target_path, "rb");
-      if (!check)
-      {
-        CreateBlankFormattedCard(target_path);
-      }
-      else
-      {
-        fclose(check);
-      }
-
-      return LoadCardFromFile(target_path, sio::memory_card::memory_card_ram);
+      return LoadCardFromFile(found_path, sio::memory_card::memory_card_ram);
     }
 
     bool UnloadCard()

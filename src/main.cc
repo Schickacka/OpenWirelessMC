@@ -62,6 +62,7 @@ namespace openmc
 
     void main(void)
     {
+        logging_init_ringbuffer();
         ESP_LOGI(kLogPrefix, "=== OpenWirelessMC Starting ===");
         sio::memory_card_enabled = true;
         sio::pad_enabled = false;

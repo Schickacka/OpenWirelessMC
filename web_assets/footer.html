@@ -193,6 +193,45 @@
         </form>
       </div>
 
+      <!-- Card: Atualização de Firmware Sem Fio (Web OTA) -->
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="card-title">
+          <span>🚀</span> <span>Atualização de Firmware Sem Fio (Web OTA)</span>
+        </div>
+        <p style="font-size:13px; color:var(--text-muted); line-height:1.6; margin-bottom:12px;">
+          Atualize o firmware do OpenWirelessMC diretamente pelo navegador via Wi-Fi, sem nunca precisar abrir o console ou conectar cabos USB-C!
+        </p>
+        <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+          <input type="file" id="ota-file" accept=".bin" class="form-control" style="flex:1; min-width:240px; padding:8px;">
+          <button id="btn-ota-upload" type="button" class="btn btn-pink" onclick="uploadOTA()" style="padding:10px 18px; font-weight:600;">
+            <span>⚡</span> <span>Instalar Firmware (.bin)</span>
+          </button>
+        </div>
+        <div id="ota-progress-container" style="display:none; margin-top:14px;">
+          <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+            <span id="ota-status-text" style="color:#fff;">Gravando firmware na memória flash...</span>
+            <span id="ota-percent" style="font-weight:700; color:var(--ps-pink);">0%</span>
+          </div>
+          <div style="width:100%; height:10px; background:#14151a; border-radius:999px; overflow:hidden; border:1px solid var(--border);">
+            <div id="ota-bar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--ps-pink), var(--ps-blue)); border-radius:999px; transition:width 0.2s ease;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card: Logs do Sistema em Tempo Real -->
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="card-title" style="justify-content:space-between;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span>📜</span> <span>Logs do Sistema em Tempo Real</span>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn btn-grey" onclick="fetchLiveLogs()" style="padding:4px 10px; font-size:11px;">🔄 Atualizar</button>
+            <button id="btn-auto-log" type="button" class="btn btn-blue" onclick="toggleAutoLogs()" style="padding:4px 10px; font-size:11px;">▶ Auto (3s)</button>
+          </div>
+        </div>
+        <pre id="system-logs" style="background:#0b0c10; border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; font-size:11px; line-height:1.5; color:#00e676; font-family:monospace; max-height:220px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;">Carregando logs do ESP32...</pre>
+      </div>
+
     </div>
   </div>
 
@@ -882,6 +921,168 @@ function rebootOpenMC() {
     });
 }
 
+// ==========================================
+// Ordenação Alfabética e Numérica da Tabela
+// ==========================================
+var sortDirections = [1, 1, 1, 1]; // 1: Crescente (A-Z), -1: Decrescente (Z-A)
+
+function sortTable(colIndex) {
+  var table = document.getElementById("saves-table");
+  if (!table) return;
+  var tbody = table.querySelector("tbody");
+  if (!tbody) return;
+
+  var rows = Array.from(tbody.querySelectorAll("tr"));
+  if (rows.length <= 1) return;
+
+  var currentDir = sortDirections[colIndex] || 1;
+  var nextDir = -currentDir;
+  sortDirections[colIndex] = nextDir;
+
+  for (var i = 0; i < 4; i++) {
+    var icon = document.getElementById("sort-icon-" + i);
+    if (icon) {
+      if (i === colIndex) {
+        icon.innerText = nextDir === 1 ? "▲" : "▼";
+        icon.style.color = "var(--ps-blue)";
+      } else {
+        icon.innerText = "↕";
+        icon.style.color = "var(--text-muted)";
+      }
+    }
+  }
+
+  rows.sort(function(rowA, rowB) {
+    var cellA = rowA.children[colIndex];
+    var cellB = rowB.children[colIndex];
+    if (!cellA || !cellB) return 0;
+
+    var valA = cellA.innerText.trim();
+    var valB = cellB.innerText.trim();
+
+    // Se a coluna for Tamanho (índice 3), ordenar numericamente
+    if (colIndex === 3) {
+      var numA = parseInt(valA.replace(/[^0-9]/g, '')) || 0;
+      var numB = parseInt(valB.replace(/[^0-9]/g, '')) || 0;
+      return (numA - numB) * nextDir;
+    }
+
+    return valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' }) * nextDir;
+  });
+
+  rows.forEach(function(row) {
+    tbody.appendChild(row);
+  });
+}
+
+// ==========================================
+// Logs do Sistema em Tempo Real
+// ==========================================
+var logInterval = null;
+
+function fetchLiveLogs() {
+  var logBox = document.getElementById("system-logs");
+  if (!logBox) return;
+
+  fetch('/api/logs')
+    .then(r => r.text())
+    .then(txt => {
+      logBox.innerText = txt || "Nenhum log registrado ainda.";
+      logBox.scrollTop = logBox.scrollHeight;
+    })
+    .catch(err => {
+      logBox.innerText = "Erro ao buscar logs do console: " + err;
+    });
+}
+
+function toggleAutoLogs() {
+  var btn = document.getElementById("btn-auto-log");
+  if (logInterval) {
+    clearInterval(logInterval);
+    logInterval = null;
+    if (btn) btn.innerText = "▶ Auto (3s)";
+  } else {
+    fetchLiveLogs();
+    logInterval = setInterval(fetchLiveLogs, 3000);
+    if (btn) btn.innerText = "⏸ Pausar Auto";
+  }
+}
+
+// ==========================================
+// Atualização de Firmware Sem Fio (Web OTA)
+// ==========================================
+function uploadOTA() {
+  var fileInput = document.getElementById("ota-file");
+  if (!fileInput || fileInput.files.length === 0) {
+    alert("Selecione um arquivo de firmware (.bin) para atualizar!");
+    return;
+  }
+
+  var file = fileInput.files[0];
+  if (!file.name.toLowerCase().endsWith(".bin")) {
+    alert("Arquivo inválido! O firmware deve ter extensão .bin!");
+    return;
+  }
+
+  if (!confirm("Tem certeza que deseja atualizar o firmware do OpenWirelessMC com '" + file.name + "' (" + formatBytes(file.size) + ")?\n\nO videogame gravará a nova versão na flash e reiniciará automaticamente em alguns segundos.")) {
+    return;
+  }
+
+  var btn = document.getElementById("btn-ota-upload");
+  btn.disabled = true;
+  btn.innerText = "Enviando Firmware...";
+
+  var progContainer = document.getElementById("ota-progress-container");
+  var progBar = document.getElementById("ota-bar");
+  var progText = document.getElementById("ota-status-text");
+  var progPct = document.getElementById("ota-percent");
+
+  progContainer.style.display = "block";
+  progBar.style.width = "0%";
+  progPct.innerText = "0%";
+  progText.innerText = "Transmitindo arquivo para o console...";
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/ota", true);
+
+  xhr.upload.onprogress = function(e) {
+    if (e.lengthComputable) {
+      var pct = Math.round((e.loaded / e.total) * 100);
+      progBar.style.width = pct + "%";
+      progPct.innerText = pct + "%";
+      if (pct >= 100) {
+        progText.innerText = "Gravando na memória flash e validando integridade...";
+      }
+    }
+  };
+
+  xhr.onload = function() {
+    if (xhr.status === 200) {
+      progBar.style.width = "100%";
+      progPct.innerText = "100%";
+      progText.innerText = "✔ Atualização concluída com sucesso! Reiniciando o console...";
+      setTimeout(function() {
+        alert("✔ Firmware atualizado com sucesso via Wi-Fi!\nO OpenWirelessMC está reiniciando. A página recarregará em 5 segundos.");
+        location.reload();
+      }, 3500);
+    } else {
+      progText.innerText = "✖ Erro na atualização!";
+      alert("Falha na atualização de firmware: " + xhr.status + " " + xhr.responseText);
+      btn.disabled = false;
+      btn.innerText = "⚡ Instalar Firmware (.bin)";
+    }
+  };
+
+  xhr.onerror = function() {
+    progText.innerText = "✖ Erro de rede ou desconexão durante o envio!";
+    alert("Falha na conexão durante o envio da atualização.");
+    btn.disabled = false;
+    btn.innerText = "⚡ Instalar Firmware (.bin)";
+  };
+
+  xhr.send(file);
+}
+
 // Carregar Banco de Dados Global de Títulos (titles.db) do SD
 function loadGameDatabase() {
   fetch('/titles.db')
@@ -902,10 +1103,12 @@ function loadGameDatabase() {
         }
       }
       populateGameTitles();
+      sortTable(0); // Ordenar alfabeticamente por Título (A-Z) por padrão
     })
     .catch(function(err) {
       // Fallback para os títulos já pré-carregados no dicionário
       populateGameTitles();
+      sortTable(0); // Ordenar alfabeticamente por Título (A-Z) por padrão
     });
 }
 

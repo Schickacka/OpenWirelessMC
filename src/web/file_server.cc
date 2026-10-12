@@ -39,6 +39,7 @@
 #include <esp_flash.h>
 #include <esp_heap_caps.h>
 #include <soc/rtc.h>
+#include <esp_ota_ops.h>
 #include "ff.h"
 
 /* Max length a file path can have on storage */
@@ -149,7 +150,12 @@ namespace openmc
                 }
                 httpd_resp_sendstr_chunk(req, "</div>");
 
-                httpd_resp_sendstr_chunk(req, "<div class=\"table-wrapper\"><table class=\"ps-table\"><thead><tr><th>Título</th><th>Nome do Arquivo</th><th>Tipo</th><th>Tamanho</th><th>Ações</th></tr></thead><tbody>");
+                httpd_resp_sendstr_chunk(req, "<div class=\"table-wrapper\"><table id=\"saves-table\" class=\"ps-table\"><thead><tr>"
+                                              "<th style=\"cursor:pointer; user-select:none;\" onclick=\"sortTable(0)\" title=\"Clique para ordenar\">Título <span id=\"sort-icon-0\" style=\"color:var(--ps-blue);\">▲</span></th>"
+                                              "<th style=\"cursor:pointer; user-select:none;\" onclick=\"sortTable(1)\" title=\"Clique para ordenar\">Nome do Arquivo <span id=\"sort-icon-1\" style=\"color:var(--text-muted);\">↕</span></th>"
+                                              "<th style=\"cursor:pointer; user-select:none;\" onclick=\"sortTable(2)\" title=\"Clique para ordenar\">Tipo <span id=\"sort-icon-2\" style=\"color:var(--text-muted);\">↕</span></th>"
+                                              "<th style=\"cursor:pointer; user-select:none;\" onclick=\"sortTable(3)\" title=\"Clique para ordenar\">Tamanho <span id=\"sort-icon-3\" style=\"color:var(--text-muted);\">↕</span></th>"
+                                              "<th>Ações</th></tr></thead><tbody>");
 
                 if (dir != NULL)
                 {
@@ -1077,6 +1083,119 @@ namespace openmc
                 return ESP_OK;
             }
 
+            /* API Handler: GET /api/logs */
+            static esp_err_t api_logs_handler(httpd_req_t *req)
+            {
+                char *log_buf = (char *)malloc(16384);
+                if (!log_buf)
+                {
+                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory for logs");
+                    return ESP_FAIL;
+                }
+
+                size_t len = logging_get_logs(log_buf, 16384);
+                httpd_resp_set_type(req, "text/plain; charset=utf-8");
+                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+                httpd_resp_send(req, log_buf, len);
+                free(log_buf);
+                return ESP_OK;
+            }
+
+            /* API Handler: POST /api/ota */
+            static esp_err_t api_ota_handler(httpd_req_t *req)
+            {
+                ESP_LOGI(kLogPrefix, "OTA update initiated via Web API, content length = %d", req->content_len);
+                if (req->content_len <= 0)
+                {
+                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid content length");
+                    return ESP_FAIL;
+                }
+
+                const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
+                if (!update_partition)
+                {
+                    ESP_LOGE(kLogPrefix, "OTA: Failed to find update partition!");
+                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No OTA partition found");
+                    return ESP_FAIL;
+                }
+
+                ESP_LOGI(kLogPrefix, "OTA: Target partition: %s (offset: 0x%x, size: 0x%x)",
+                         update_partition->label, update_partition->address, update_partition->size);
+
+                esp_ota_handle_t ota_handle = 0;
+                esp_err_t err = esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle);
+                if (err != ESP_OK)
+                {
+                    ESP_LOGE(kLogPrefix, "OTA: esp_ota_begin failed: 0x%x", err);
+                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA begin failed");
+                    return ESP_FAIL;
+                }
+
+                char *ota_buf = (char *)malloc(4096);
+                if (!ota_buf)
+                {
+                    esp_ota_end(ota_handle);
+                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA buffer allocation failed");
+                    return ESP_FAIL;
+                }
+
+                int remaining = req->content_len;
+                while (remaining > 0)
+                {
+                    int to_recv = (remaining < 4096) ? remaining : 4096;
+                    int received = httpd_req_recv(req, ota_buf, to_recv);
+                    if (received <= 0)
+                    {
+                        if (received == HTTPD_SOCK_ERR_TIMEOUT)
+                        {
+                            continue;
+                        }
+                        ESP_LOGE(kLogPrefix, "OTA: Receive error: %d", received);
+                        free(ota_buf);
+                        esp_ota_end(ota_handle);
+                        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA receive interrupted");
+                        return ESP_FAIL;
+                    }
+
+                    err = esp_ota_write(ota_handle, (const void *)ota_buf, received);
+                    if (err != ESP_OK)
+                    {
+                        ESP_LOGE(kLogPrefix, "OTA: esp_ota_write failed: 0x%x", err);
+                        free(ota_buf);
+                        esp_ota_end(ota_handle);
+                        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA write flash failed");
+                        return ESP_FAIL;
+                    }
+                    remaining -= received;
+                }
+
+                free(ota_buf);
+
+                err = esp_ota_end(ota_handle);
+                if (err != ESP_OK)
+                {
+                    ESP_LOGE(kLogPrefix, "OTA: esp_ota_end failed: 0x%x", err);
+                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA validation failed");
+                    return ESP_FAIL;
+                }
+
+                err = esp_ota_set_boot_partition(update_partition);
+                if (err != ESP_OK)
+                {
+                    ESP_LOGE(kLogPrefix, "OTA: esp_ota_set_boot_partition failed: 0x%x", err);
+                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to set boot partition");
+                    return ESP_FAIL;
+                }
+
+                ESP_LOGI(kLogPrefix, "OTA Update SUCCEEDED! Restarting in 2 seconds...");
+                httpd_resp_set_type(req, "application/json");
+                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+                httpd_resp_sendstr(req, "{\"status\":\"ok\",\"message\":\"Atualizado com sucesso! Reiniciando...\"}");
+
+                xTaskCreate(reboot_task, "reboot_task", 2048, NULL, 5, NULL);
+                return ESP_OK;
+            }
+
             /* Function to start the file server */
             esp_err_t start_file_server(const char *base_path)
             {
@@ -1186,6 +1305,22 @@ namespace openmc
                     .user_ctx = NULL
                 };
                 httpd_register_uri_handler(server, &api_sio_toggle_uri);
+
+                httpd_uri_t api_logs_uri = {
+                    .uri = "/api/logs",
+                    .method = HTTP_GET,
+                    .handler = api_logs_handler,
+                    .user_ctx = NULL
+                };
+                httpd_register_uri_handler(server, &api_logs_uri);
+
+                httpd_uri_t api_ota_uri = {
+                    .uri = "/api/ota",
+                    .method = HTTP_POST,
+                    .handler = api_ota_handler,
+                    .user_ctx = NULL
+                };
+                httpd_register_uri_handler(server, &api_ota_uri);
 
                 // URI handler for getting uploaded files
                 httpd_uri_t file_download = {

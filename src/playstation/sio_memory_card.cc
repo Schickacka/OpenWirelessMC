@@ -84,6 +84,16 @@ namespace openmc
 
       void IRAM_ATTR GoIdle()
       {
+        if (current_command == Commands::kGameID && command_ticks >= 2)
+        {
+          uint16_t chars_received = (command_ticks > 2) ? (command_ticks - 2) : 0;
+          if (chars_received > 0 && !game_id_updated)
+          {
+            if (chars_received >= sizeof(game_id)) chars_received = sizeof(game_id) - 1;
+            game_id[chars_received] = '\0';
+            game_id_updated = true;
+          }
+        }
         current_command = Commands::kNone;
         command_ticks = 0;
         sector_offset = 0;
@@ -364,35 +374,37 @@ namespace openmc
 
       uint8_t IRAM_ATTR TickGameIDCommand(uint8_t &data_in)
       {
-        uint8_t data_out = 0xFF;
+        uint8_t data_out = Responses::kReserved;
 
         switch (command_ticks)
         {
-        case 0: // 21h game_id command start
-        case 1: // Reserved
+        case 0: // Byte 2 (0x00 reserved)
+          game_id_length = 0;
           data_out = Responses::kReserved;
           break;
 
-        case 2: // Length of the game id transmitted ( strlen )
-          data_out = Responses::kReserved;
+        case 1: // Byte 3: Length of GameID (strlen)
           game_id_length = data_in;
+          data_out = Responses::kReserved;
           break;
 
-        default:
-          if (command_ticks >= 3 && (command_ticks - 3) < game_id_length)
+        default: // Byte 4+: GameID characters
           {
-            game_id[command_ticks - 3] = data_in;
-            data_out = Responses::kReserved;
-          }
-          else
-          {
-            if (game_id_length > 0 && game_id_length < 255)
+            uint16_t char_idx = command_ticks - 2;
+            if (char_idx < (sizeof(game_id) - 1))
             {
-              game_id[game_id_length] = '\0';
+              game_id[char_idx] = data_in;
+            }
+
+            if (data_in == '\0' || (game_id_length > 0 && (char_idx + 1) >= game_id_length))
+            {
+              uint16_t term_idx = (char_idx + 1 < sizeof(game_id)) ? (char_idx + 1) : (sizeof(game_id) - 1);
+              game_id[term_idx] = '\0';
               game_id_updated = true;
             }
-            data_out = Responses::kCommandAcknowledge1;
+            data_out = Responses::kReserved;
           }
+          break;
         }
 
         command_ticks++;
