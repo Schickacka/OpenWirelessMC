@@ -467,7 +467,9 @@ function getRegionFromPrefix(prefix) {
 function resolveGameInfo(filename) {
   var t = I18N;
   if (!filename) return { title: t.generic_save, region: "" };
-  var match = filename.match(/([A-Za-z]{4})[-_](\d{3,5})/);
+
+  // Match prefixes like SLUS-01066, SLUS_010.66, SLUS01066, SCUS-94183, etc.
+  var match = filename.match(/([A-Za-z]{4})[-_]?(\d{3,5})/);
   if (match) {
     var code = match[1].toUpperCase() + "-" + match[2];
     var region = getRegionFromPrefix(match[1]);
@@ -477,7 +479,7 @@ function resolveGameInfo(filename) {
     }
     return { title: code, region: region, code: code };
   }
-  return { title: t.generic_save, region: "" };
+  return { title: filename, region: "" };
 }
 
 // Atualizar Tabela e Banner com Nomes de Jogos
@@ -685,6 +687,9 @@ function ejectMicroSD() {
     .then(data => {
       alert("✔ Cartão MicroSD desmontado com sucesso!\nVocê já pode remover o cartão fisicamente do console com segurança.");
       fetchStatus();
+      setTimeout(function() {
+        location.reload();
+      }, 500);
     })
     .catch(err => {
       alert("Aviso: " + err);
@@ -924,9 +929,12 @@ function rebootOpenMC() {
 // ==========================================
 // Ordenação Alfabética e Numérica da Tabela
 // ==========================================
-var sortDirections = [1, 1, 1, 1]; // 1: Crescente (A-Z), -1: Decrescente (Z-A)
+// ==========================================
+// Ordenação Alfabética e Numérica da Tabela
+// ==========================================
+var sortDirections = [-1, -1, -1, -1]; // Próximo clique inverterá para 1 (A-Z)
 
-function sortTable(colIndex) {
+function sortTable(colIndex, forceAsc) {
   var table = document.getElementById("saves-table");
   if (!table) return;
   var tbody = table.querySelector("tbody");
@@ -935,15 +943,20 @@ function sortTable(colIndex) {
   var rows = Array.from(tbody.querySelectorAll("tr"));
   if (rows.length <= 1) return;
 
-  var currentDir = sortDirections[colIndex] || 1;
-  var nextDir = -currentDir;
-  sortDirections[colIndex] = nextDir;
+  var dir = 1;
+  if (forceAsc) {
+    dir = 1;
+    sortDirections[colIndex] = 1;
+  } else {
+    dir = (sortDirections[colIndex] === 1) ? -1 : 1;
+    sortDirections[colIndex] = dir;
+  }
 
   for (var i = 0; i < 4; i++) {
     var icon = document.getElementById("sort-icon-" + i);
     if (icon) {
       if (i === colIndex) {
-        icon.innerText = nextDir === 1 ? "▲" : "▼";
+        icon.innerText = dir === 1 ? "▲" : "▼";
         icon.style.color = "var(--ps-blue)";
       } else {
         icon.innerText = "↕";
@@ -960,14 +973,20 @@ function sortTable(colIndex) {
     var valA = cellA.innerText.trim();
     var valB = cellB.innerText.trim();
 
+    // Pastas sempre ficam no topo
+    var isDirA = rowA.querySelector(".tag-dir") !== null;
+    var isDirB = rowB.querySelector(".tag-dir") !== null;
+    if (isDirA && !isDirB) return -1;
+    if (!isDirA && isDirB) return 1;
+
     // Se a coluna for Tamanho (índice 3), ordenar numericamente
     if (colIndex === 3) {
       var numA = parseInt(valA.replace(/[^0-9]/g, '')) || 0;
       var numB = parseInt(valB.replace(/[^0-9]/g, '')) || 0;
-      return (numA - numB) * nextDir;
+      return (numA - numB) * dir;
     }
 
-    return valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' }) * nextDir;
+    return valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' }) * dir;
   });
 
   rows.forEach(function(row) {
@@ -1103,12 +1122,12 @@ function loadGameDatabase() {
         }
       }
       populateGameTitles();
-      sortTable(0); // Ordenar alfabeticamente por Título (A-Z) por padrão
+      sortTable(0, true); // Ordenar alfabeticamente por Título (A-Z) por padrão
     })
     .catch(function(err) {
       // Fallback para os títulos já pré-carregados no dicionário
       populateGameTitles();
-      sortTable(0); // Ordenar alfabeticamente por Título (A-Z) por padrão
+      sortTable(0, true); // Ordenar alfabeticamente por Título (A-Z) por padrão
     });
 }
 

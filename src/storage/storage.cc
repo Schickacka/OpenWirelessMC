@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 namespace openmc
 {
@@ -293,26 +294,84 @@ namespace openmc
         return false;
       }
 
-      // Sanitize GameID (strip trailing spaces, CR, LF, nulls)
-      char clean_id[64];
-      size_t len = 0;
-      for (size_t i = 0; game_id_str[i] != '\0' && len < sizeof(clean_id) - 1; i++)
-      {
-        char c = game_id_str[i];
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')
-        {
-          clean_id[len++] = c;
-        }
-      }
-      clean_id[len] = '\0';
+      ESP_LOGI(kLogPrefix, "SwitchToGameID: Raw GameID received: '%s'\n", game_id_str);
 
-      if (len == 0)
+      // Extract Game ID from paths like "cdrom:\SLUS_010.66;1", "SLUS_010.66", "SLUS-01066", etc.
+      // Search for standard 4-letter PSX prefixes (SLUS, SCUS, SLES, SCES, SLPS, SLPM, SCPS, etc.)
+      const char *p = game_id_str;
+      char clean_id[64];
+      clean_id[0] = '\0';
+
+      while (*p)
+      {
+        // Check if current 4 characters are an alphabetic code
+        if (isalpha((unsigned char)p[0]) && isalpha((unsigned char)p[1]) &&
+            isalpha((unsigned char)p[2]) && isalpha((unsigned char)p[3]))
+        {
+          char prefix[5];
+          prefix[0] = toupper((unsigned char)p[0]);
+          prefix[1] = toupper((unsigned char)p[1]);
+          prefix[2] = toupper((unsigned char)p[2]);
+          prefix[3] = toupper((unsigned char)p[3]);
+          prefix[4] = '\0';
+
+          const char *digits_ptr = p + 4;
+          // Skip optional separators like '_', '-', or ' '
+          while (*digits_ptr == '_' || *digits_ptr == '-' || *digits_ptr == ' ')
+          {
+            digits_ptr++;
+          }
+
+          // Extract digits (handling dots, e.g. "010.66" -> "01066")
+          char num_buf[16];
+          size_t num_len = 0;
+          while (*digits_ptr && num_len < sizeof(num_buf) - 1)
+          {
+            if (isdigit((unsigned char)*digits_ptr))
+            {
+              num_buf[num_len++] = *digits_ptr;
+            }
+            else if (*digits_ptr != '.')
+            {
+              // Hit ';' or space or another separator indicating end of number
+              break;
+            }
+            digits_ptr++;
+          }
+          num_buf[num_len] = '\0';
+
+          if (num_len >= 3)
+          {
+            // Found a valid GameID! Format as PREFIX-NUMBER (e.g. SLUS-01066)
+            snprintf(clean_id, sizeof(clean_id), "%s-%s", prefix, num_buf);
+            break;
+          }
+        }
+        p++;
+      }
+
+      // Fallback: If no standard PSX pattern found, sanitize characters directly
+      if (clean_id[0] == '\0')
+      {
+        size_t len = 0;
+        for (size_t i = 0; game_id_str[i] != '\0' && len < sizeof(clean_id) - 1; i++)
+        {
+          char c = game_id_str[i];
+          if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')
+          {
+            clean_id[len++] = toupper((unsigned char)c);
+          }
+        }
+        clean_id[len] = '\0';
+      }
+
+      if (strlen(clean_id) == 0)
       {
         ESP_LOGW(kLogPrefix, "SwitchToGameID: Invalid/empty sanitized GameID.\n");
         return false;
       }
 
-      ESP_LOGI(kLogPrefix, "SwitchToGameID: Resolving save file for GameID '%s'...\n", clean_id);
+      ESP_LOGI(kLogPrefix, "SwitchToGameID: Parsed GameID -> '%s'\n", clean_id);
 
       // Search candidates in order of priority:
       // 1. <GameID>-1.mc (PSxMemCard Gen2 standard channel)
