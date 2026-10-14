@@ -1,8 +1,8 @@
 @echo off
 setlocal enabledelayedexpansion
-title OpenWirelessMC v0.1 - Flasher
+title OpenWirelessMC v2.1 - Flasher
 echo ========================================================
-echo    OpenWirelessMC v0.1 - Firmware Flasher
+echo    OpenWirelessMC v2.1 - Firmware Flasher
 echo ========================================================
 echo.
 set /p PORT="Digite a porta COM do ESP32 (exemplo: COM6): "
@@ -13,8 +13,8 @@ if "%PORT%"=="" (
 )
 
 echo.
-echo Gravando OpenWirelessMC (Bootloader + Particoes Dual-OTA + Firmware)...
-python -m esptool --chip esp32 --port %PORT% --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 40m --flash_size 4MB 0x1000 bootloader.bin 0x8000 partitions.bin 0xd000 ota_data_initial.bin 0x10000 firmware_v10_openwirelessmc_production_final.bin
+echo Gravando OpenWirelessMC (Bootloader + Particoes Dual-OTA + Firmware v2.1)...
+python -m esptool --chip esp32 --port %PORT% --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 40m --flash_size 4MB 0x1000 bootloader.bin 0x8000 partitions.bin 0xd000 ota_data_initial.bin 0x10000 firmware_v21_openwirelessmc.bin
 
 if %ERRORLEVEL% EQU 0 (
     echo.

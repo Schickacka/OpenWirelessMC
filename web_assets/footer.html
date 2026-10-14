@@ -93,6 +93,10 @@
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; font-size:13px;">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
+            <span style="color:var(--text-muted); flex-shrink:0;">Firmware:</span>
+            <span style="font-weight:700; color:var(--ps-green); text-align:right;">v2.1</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
             <span style="color:var(--text-muted); flex-shrink:0;">Chipset:</span>
             <span id="chip-model-text" style="font-weight:600; color:#fff; text-align:right;">Carregando...</span>
           </div>
@@ -194,16 +198,16 @@
       </div>
 
       <!-- Card: Atualização de Firmware Sem Fio (Web OTA) -->
-      <div class="card" style="grid-column: 1 / -1;">
+      <div class="card">
         <div class="card-title">
-          <span>🚀</span> <span>Atualização de Firmware Sem Fio (Web OTA)</span>
+          <span>🚀</span> <span>Atualização de Firmware (Web OTA)</span>
         </div>
         <p style="font-size:13px; color:var(--text-muted); line-height:1.6; margin-bottom:12px;">
           Atualize o firmware do OpenWirelessMC diretamente pelo navegador via Wi-Fi, sem nunca precisar abrir o console ou conectar cabos USB-C!
         </p>
-        <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
-          <input type="file" id="ota-file" accept=".bin" class="form-control" style="flex:1; min-width:240px; padding:8px;">
-          <button id="btn-ota-upload" type="button" class="btn btn-pink" onclick="uploadOTA()" style="padding:10px 18px; font-weight:600;">
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <input type="file" id="ota-file" accept=".bin" class="form-control" style="padding:8px;">
+          <button id="btn-ota-upload" type="button" class="btn btn-pink" onclick="uploadOTA()" style="padding:10px 18px; font-weight:600; width:100%;">
             <span>⚡</span> <span>Instalar Firmware (.bin)</span>
           </button>
         </div>
@@ -219,17 +223,17 @@
       </div>
 
       <!-- Card: Logs do Sistema em Tempo Real -->
-      <div class="card" style="grid-column: 1 / -1;">
-        <div class="card-title" style="justify-content:space-between;">
+      <div class="card">
+        <div class="card-title" style="justify-content:space-between; flex-wrap:wrap; gap:8px;">
           <div style="display:flex; align-items:center; gap:8px;">
-            <span>📜</span> <span>Logs do Sistema em Tempo Real</span>
+            <span>📜</span> <span>Logs em Tempo Real</span>
           </div>
-          <div style="display:flex; gap:8px;">
-            <button type="button" class="btn btn-grey" onclick="fetchLiveLogs()" style="padding:4px 10px; font-size:11px;">🔄 Atualizar</button>
-            <button id="btn-auto-log" type="button" class="btn btn-blue" onclick="toggleAutoLogs()" style="padding:4px 10px; font-size:11px;">▶ Auto (3s)</button>
+          <div style="display:flex; gap:6px;">
+            <button type="button" class="btn btn-grey" onclick="fetchLiveLogs()" style="padding:4px 8px; font-size:11px;">🔄 Atualizar</button>
+            <button id="btn-auto-log" type="button" class="btn btn-blue" onclick="toggleAutoLogs()" style="padding:4px 8px; font-size:11px;">▶ Auto (3s)</button>
           </div>
         </div>
-        <pre id="system-logs" style="background:#0b0c10; border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; font-size:11px; line-height:1.5; color:#00e676; font-family:monospace; max-height:220px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;">Carregando logs do ESP32...</pre>
+        <pre id="system-logs" style="background:#0b0c10; border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px; font-size:11px; line-height:1.5; color:#00e676; font-family:monospace; max-height:200px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;">Carregando logs do ESP32...</pre>
       </div>
 
     </div>

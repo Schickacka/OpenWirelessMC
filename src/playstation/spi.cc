@@ -2,6 +2,7 @@
 
 #include "logging.h"
 #include "playstation/sio.h"
+#include "playstation/sio_memory_card.h"
 
 #include "baremetal_core1/core0_stall.h"
 
@@ -19,6 +20,8 @@ namespace openmc
         uint8_t DRAM_ATTR SPDR = 0xFF;
         bool DRAM_ATTR selected = false;
         bool DRAM_ATTR enabled = false; // AVR artifact(SPSR), contemplate the existance of this
+        uint8_t DRAM_ATTR last_abort_reason = 0;
+        volatile uint32_t DRAM_ATTR sel_glitch_count = 0;
 
         void IRAM_ATTR ActiveMode()
         {
@@ -68,11 +71,23 @@ namespace openmc
 
         uint32_t IRAM_ATTR InterruptHandler(uint32_t cause)
         {
+            // Clear falling-edge interrupt status immediately upon entry
+            REG_WRITE(GPIO_STATUS1_W1TC_REG, kSEL_Bitmask);
+
+            // Fast filter: if SEL is already confirmed HIGH upon entry, ignore phantom edge
+            if ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) && ConfirmUnselected())
+            {
+                sio::memory_card::abort_byte0_count++;
+                (void)REG_READ(GPIO_STATUS1_REG);
+                return 0;
+            }
+
             // Stall core0 to prevent interruptions
             core0_stall_start();
 
             // Storage for outgoing byte, start hi-Z
             uint8_t last_byte = 0xFF;
+            last_abort_reason = 0;
 
             // Interrupt triggered on falling edge, assume we're going in hot
             selected = true;
@@ -93,6 +108,11 @@ namespace openmc
                 last_byte = SPDR;
             }
 
+            if (sio::current_command == openmc::sio::PS1_SIOCommands::Idle)
+            {
+                sio::memory_card::abort_byte0_count++;
+            }
+
             // Clear last command
             sio::current_command = openmc::sio::PS1_SIOCommands::Idle;
             sio::TickEventCounter();
@@ -106,8 +126,22 @@ namespace openmc
             // Re-Enable SPI if previously set to Disable(ignore mode)
             Enable();
 
-            // Clear interrupt status
+            // If we exited early (e.g. Controller poll 0x01) while SEL is still LOW,
+            // wait for the transaction to finish and SEL to go HIGH so crosstalk on SEL
+            // during the remaining controller bytes does not re-trigger InterruptHandler mid-frame
+            uint32_t wait_sel_ticks = 0;
+            while (!((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) && ConfirmUnselected()))
+            {
+                wait_sel_ticks++;
+                if (wait_sel_ticks >= MAX_TIMEOUT_TICKS)
+                {
+                    break;
+                }
+            }
+
+            // Clear any edge glitches latched while SEL was low, and read back to flush APB write buffer
             REG_WRITE(GPIO_STATUS1_W1TC_REG, REG_READ(GPIO_ACPU_INT1_REG));
+            (void)REG_READ(GPIO_STATUS1_REG);
 
             // Resume core0
             core0_stall_end();

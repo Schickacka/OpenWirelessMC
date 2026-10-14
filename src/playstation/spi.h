@@ -20,6 +20,8 @@ namespace openmc
         extern uint8_t SPDR;
         extern bool selected;
         extern bool enabled;
+        extern uint8_t last_abort_reason;
+        extern volatile uint32_t sel_glitch_count;
 
         uint32_t InterruptHandler(uint32_t cause);
         void ActiveMode();
@@ -29,13 +31,28 @@ namespace openmc
         void InstallInterrupt();
         void PassiveMode();
 
+        // Confirm SEL is genuinely HIGH (debounced against capacitive crosstalk on GPIO35)
+        inline bool IRAM_ATTR ConfirmUnselected()
+        {
+            for (int k = 0; k < 8; k++)
+            {
+                if ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) == 0)
+                {
+                    sel_glitch_count++;
+                    return false;
+                }
+            }
+            return true;
+        }
+
         inline bool IRAM_ATTR SendAck()
         {
             // Delay ~10uS from last clock pulse
             for (int i = 0; i < 84; i++)
             {
-                if (((GPIO_REG_READ(GPIO_IN1_REG) >> (kSEL_Pin - 32)) & 1U) == 1)
+                if ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) && ConfirmUnselected())
                 {
+                    last_abort_reason = 50;
                     // Return false, ack not sent
                     return false;
                 }
@@ -47,10 +64,10 @@ namespace openmc
             // Delay ~2uS
             for (int i = 0; i < 20; i++)
             {
-                if (((GPIO_REG_READ(GPIO_IN1_REG) >> (kSEL_Pin - 32)) & 1U) == 1)
+                if ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) && ConfirmUnselected())
                 {
+                    last_abort_reason = 51;
                     // Device not selected anymore, break early
-                    // To-do: Maybe call PassiveMode here?
                     break;
                 }
             }
@@ -68,6 +85,7 @@ namespace openmc
             // Bit hacky, but, if disabled, abort up the chain
             if (!enabled)
             {
+                last_abort_reason = 1;
                 selected = false;
                 return 0xFF;
             }
@@ -80,11 +98,17 @@ namespace openmc
                 timeout_ticks = 0;
 
                 // Wait for clock to go low
-                while (((GPIO_REG_READ(GPIO_IN1_REG) >> (kCLK_Pin - 32)) & 1U) == 1)
+                while (true)
                 {
-                    // Abort if unselected
-                    if (((GPIO_REG_READ(GPIO_IN1_REG) >> (kSEL_Pin - 32)) & 1U) == 1)
+                    uint32_t in1 = GPIO_REG_READ(GPIO_IN1_REG);
+                    if ((in1 & kCLK_Bitmask) == 0)
                     {
+                        break;
+                    }
+                    // Abort if genuinely unselected
+                    if ((in1 & kSEL_Bitmask) && ConfirmUnselected())
+                    {
+                        last_abort_reason = (bitPos == 0) ? 2 : (10 + bitPos);
                         selected = false;
                         return 0xFF;
                     }
@@ -92,19 +116,13 @@ namespace openmc
                     timeout_ticks++;
                     if (timeout_ticks >= MAX_TIMEOUT_TICKS)
                     {
+                        last_abort_reason = 20 + bitPos;
                         selected = false;
                         return 0xFF;
                     }
                 }
 
-                // Abort if unselected - redundant check here, we just polled this in the last loop
-                if (((GPIO_REG_READ(GPIO_IN1_REG) >> (kSEL_Pin - 32)) & 1U) == 1)
-                {
-                    selected = false;
-                    return 0xFF;
-                }
-
-                // Write bit out while clock is low
+                // Write bit out immediately while clock is low
                 if (data_out & (1 << bitPos))
                 {
                     // if bit is set, write to the bit set register
@@ -120,11 +138,18 @@ namespace openmc
                 timeout_ticks = 0;
 
                 // Wait for clock to go high
-                while (((GPIO_REG_READ(GPIO_IN1_REG) >> (kCLK_Pin - 32)) & 1U) == 0)
+                uint32_t in1;
+                while (true)
                 {
-                    // Abort if unselected
-                    if (((GPIO_REG_READ(GPIO_IN1_REG) >> (kSEL_Pin - 32)) & 1U) == 1)
+                    in1 = GPIO_REG_READ(GPIO_IN1_REG);
+                    if ((in1 & kCLK_Bitmask) != 0)
                     {
+                        break;
+                    }
+                    // Abort if genuinely unselected
+                    if ((in1 & kSEL_Bitmask) && ConfirmUnselected())
+                    {
+                        last_abort_reason = 30 + bitPos;
                         selected = false;
                         return 0xFF;
                     }
@@ -132,13 +157,17 @@ namespace openmc
                     timeout_ticks++;
                     if (timeout_ticks >= MAX_TIMEOUT_TICKS)
                     {
+                        last_abort_reason = 40 + bitPos;
                         selected = false;
                         return 0xFF;
                     }
                 }
 
-                // Store current bit state
-                data_in |= ((GPIO_REG_READ(GPIO_IN1_REG) >> (kMOSI_Pin - 32)) & 1U) << bitPos;
+                // Store current bit state from rising edge snapshot
+                if (in1 & kMOSI_Bitmask)
+                {
+                    data_in |= (1 << bitPos);
+                }
             }
 
             return data_in;

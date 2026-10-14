@@ -1,7 +1,9 @@
 #include "storage/storage.h"
+#include "storage/ps1_empty_card.h"
 
 #include "playstation/sio.h"
 #include "playstation/sio_memory_card.h"
+#include "playstation/spi.h"
 #include "storage/sdcard.h"
 #include "system/timer.h"
 
@@ -79,6 +81,7 @@ namespace openmc
         }
         if (sio::memory_card::game_id_updated)
         {
+          __sync_synchronize();
           sio::memory_card::game_id_updated = false;
           if (sio::memory_card::committed_to_storage == false)
           {
@@ -87,6 +90,30 @@ namespace openmc
           }
           ESP_LOGI(kLogPrefix, "PicoStation GameID detected: %s\n", (char *)sio::memory_card::game_id);
           SwitchToGameID((char *)sio::memory_card::game_id);
+        }
+
+        while (sio::memory_card::trace_read_idx != sio::memory_card::trace_write_idx)
+        {
+          uint32_t idx = sio::memory_card::trace_read_idx & 31;
+          sio::memory_card::McTraceEntry e = sio::memory_card::trace_ring[idx];
+          sio::memory_card::trace_read_idx++;
+          if (e.cmd != 0x20)
+          {
+            ESP_LOGI(kLogPrefix, "[MC_TRACE] tick=%u addr=0x%02X cmd=0x%02X flag=0x%02X ticks=%u sec=0x%03X chk=%02X/%02X st=0x%02X abt=%u pads=%u b0abt=%u glt=%u\n",
+                     e.event_tick, e.addr, e.cmd, e.flag_sent, e.ticks, e.sector, e.chk_in, e.chk_out, e.status, e.abort_reason,
+                     (uint32_t)sio::memory_card::pad_poll_count, (uint32_t)sio::memory_card::abort_byte0_count,
+                     (uint32_t)spi::sel_glitch_count);
+          }
+        }
+
+        static uint32_t last_hb_ms = 0;
+        if (system::timer::timestamp - last_hb_ms >= 5000)
+        {
+          last_hb_ms = system::timer::timestamp;
+          ESP_LOGI(kLogPrefix, "[MC_HB] ev_ticks=%u pads=%u b0abt=%u glt=%u flag=0x%02X\n",
+                   (uint32_t)sio::event_ticks, (uint32_t)sio::memory_card::pad_poll_count,
+                   (uint32_t)sio::memory_card::abort_byte0_count, (uint32_t)spi::sel_glitch_count,
+                   sio::memory_card::flag);
         }
 
         vTaskDelay(portTICK_PERIOD_MS);
@@ -116,7 +143,7 @@ namespace openmc
       }*/
 
       // Load default.mc, create file if it doesn't exist.
-      sprintf(loaded_file_path, "%s/default.mc", base_path);
+      snprintf(loaded_file_path, sizeof(loaded_file_path), "%s/default.mc", base_path);
       if (!LoadCardFromFile(loaded_file_path, sio::memory_card::memory_card_ram))
       {
         sio::memory_card::committed_to_storage = false;
@@ -126,8 +153,8 @@ namespace openmc
     bool LoadCardFromFile(char *filepath, void *destination)
     {
       FILE *mc_file;
-      bool old_mc_status = sio::memory_card_enabled;
-      sio::memory_card_enabled = false;
+      sio::SetMemoryCardEmulation(false);
+      vTaskDelay(250 / portTICK_PERIOD_MS);
 
       ESP_LOGI(kLogPrefix, "LoadCardFromFile(%s)\n", filepath);
       mc_file = fopen(filepath, "r");
@@ -138,7 +165,6 @@ namespace openmc
       if (!mc_file)
       {
         ESP_LOGE(kLogPrefix, "Error opening file!\n");
-        sio::SetMemoryCardEmulation(old_mc_status);
         return false;
       }
       else
@@ -149,7 +175,6 @@ namespace openmc
         {
           ESP_LOGE(kLogPrefix, "File is empty\n");
           fclose(mc_file);
-          sio::SetMemoryCardEmulation(old_mc_status);
           return false;
         }
 
@@ -159,7 +184,6 @@ namespace openmc
         {
           ESP_LOGE(kLogPrefix, "Invalid File size!\n");
           fclose(mc_file);
-          sio::SetMemoryCardEmulation(old_mc_status);
           return false;
         }
 
@@ -174,12 +198,6 @@ namespace openmc
         sio::memory_card::committed_to_storage = true;
       }
 
-      // Make sure MC stays inactive long enough for BIOS to detect change
-      // To-do: Adjust lower and test
-      // Bios takes roughly 1051ms between MC status polls.
-      // Can probably get away with less, but go a bit longer.
-      // We need to miss at least one status check to initiate a proper refresh in bios.
-      vTaskDelay(1337 / portTICK_PERIOD_MS);
       sio::SetMemoryCardEmulation(true);
 
       return true;
@@ -241,42 +259,12 @@ namespace openmc
         return false;
       }
 
+      // Write Block 0 (8192 bytes = 64 frames) using the authentic Sony template (from sd2psX)
+      fwrite(ps1_empty_card, 1, sizeof(ps1_empty_card), f);
+
+      // Write Blocks 1 to 15 (15 * 64 frames = 960 frames) filled with 0xFF
       uint8_t buffer[128];
-
-      // Frame 0: Header frame
-      memset(buffer, 0x00, 128);
-      buffer[0] = 'M'; // 0x4D
-      buffer[1] = 'C'; // 0x43
-      buffer[127] = 0x0E; // Checksum: 'M' ^ 'C'
-      fwrite(buffer, 1, 128, f);
-
-      // Frames 1 to 15: Directory entries for the 15 user blocks
-      for (int i = 1; i <= 15; i++)
-      {
-        memset(buffer, 0x00, 128);
-        buffer[0] = 0xA0; // 0xA0 = Free block
-        buffer[8] = 0xFF; // Next block = none (end of file)
-        buffer[9] = 0xFF;
-        buffer[127] = 0xA0; // Checksum: 0xA0 ^ 0xFF ^ 0xFF = 0xA0
-        fwrite(buffer, 1, 128, f);
-      }
-
-      // Frames 16 to 35: Broken block list (20 frames)
       memset(buffer, 0xFF, 128);
-      for (int i = 16; i <= 35; i++)
-      {
-        fwrite(buffer, 1, 128, f);
-      }
-
-      // Frames 36 to 63: Unused (reserved, 28 frames)
-      memset(buffer, 0xFF, 128);
-      for (int i = 36; i <= 63; i++)
-      {
-        fwrite(buffer, 1, 128, f);
-      }
-
-      // Frames 64 to 1023: User data blocks (15 blocks * 64 frames = 960 frames)
-      memset(buffer, 0x00, 128);
       for (int i = 64; i < 1024; i++)
       {
         fwrite(buffer, 1, 128, f);
@@ -415,7 +403,12 @@ namespace openmc
 
       if (strcmp(loaded_file_path, found_path) == 0)
       {
-        ESP_LOGI(kLogPrefix, "GameID save %s is already loaded.\n", found_path);
+        ESP_LOGI(kLogPrefix, "GameID save %s is already loaded. Cycling card connection for ODE/Game detection.\n", found_path);
+        sio::SetMemoryCardEmulation(false);
+        vTaskDelay(250 / portTICK_PERIOD_MS);
+        sio::memory_card::flag = sio::memory_card::Flags::kDirectoryUnread;
+        sio::memory_card::GoIdle();
+        sio::SetMemoryCardEmulation(true);
         return true;
       }
 

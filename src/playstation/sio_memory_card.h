@@ -22,6 +22,7 @@ namespace openmc
             enum Commands : uint8_t
             {
                 kAccess = 0x81, // Memory Card Select
+                kFastRead = 0x42, // 'B' Fast / Long Read Command
                 kRead = 0x52,   // Read Command
                 kGetID = 0x53,  // Get ID Command
                 kWrite = 0x57,  // Write Command
@@ -38,7 +39,8 @@ namespace openmc
                 kNextChannel = 0x23,     // mount the next channel of the Virtual Memory Card
                 kPreviousCard = 0x24,    // mount the previous folder (card)
                 kNextCard = 0x25,        // mount the next folder (card)
-                kGetCardName = 0x26      // pass the name of the currently mounted card
+                kGetCardName = 0x26,     // pass the name of the currently mounted card
+                kReset = 0x27            // MMCE Reset
             };
 
             enum Responses : uint8_t
@@ -72,6 +74,27 @@ namespace openmc
             extern uint64_t volatile last_tick;
             extern uint64_t volatile last_write_tick;
             extern bool committed_to_storage;
+            extern bool skip_ack;
+
+            struct McTraceEntry
+            {
+                uint32_t event_tick;
+                uint8_t addr;
+                uint8_t cmd;
+                uint8_t flag_sent;
+                uint8_t status;
+                uint8_t abort_reason;
+                uint16_t ticks;
+                uint16_t sector;
+                uint8_t chk_in;
+                uint8_t chk_out;
+            };
+
+            extern McTraceEntry trace_ring[32];
+            extern volatile uint32_t trace_write_idx;
+            extern volatile uint32_t trace_read_idx;
+            extern volatile uint32_t pad_poll_count;
+            extern volatile uint32_t abort_byte0_count;
 
             void Commit();
             void GoIdle();
@@ -83,6 +106,8 @@ namespace openmc
             // PS1 Game ID transmisson (MemCard PRO / PS1Digital)
             uint8_t TickGameIDCommand(uint8_t &DataIn);
             uint8_t TickPingCommand(uint8_t &DataIn);
+            uint8_t TickGetIDCommand(uint8_t &DataIn);
+            uint8_t TickResetCommand(uint8_t &DataIn);
         } // namespace memory_card
 
     } //namespace sio
