@@ -1,4 +1,4 @@
-OpenWirelessMC v0.1 by Schickacka
+OpenWirelessMC v1.0 by Schickacka
 ====================================
 
 Como usar:

@@ -153,7 +153,7 @@ Os binários compilados prontos para gravação direta via `esptool` encontram-s
 
 Para gravar diretamente o binário final compilado:
 ```bash
-python -m esptool --chip esp32 --port COM6 --baud 115200 write_flash 0x10000 releases/firmware_v10_openwirelessmc_production_final.bin
+python -m esptool --chip esp32 --port COM6 --baud 115200 write_flash 0x10000 releases/firmware_v1.0.bin
 ```
 
 ---
