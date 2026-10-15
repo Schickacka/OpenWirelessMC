@@ -665,6 +665,10 @@ function ejectCard() {
   fetch('/api/unload', { method: 'POST' })
     .then(r => r.json())
     .then(data => {
+      if (data.status !== 'ok') {
+        alert("Não foi possível desmontar: " + (data.message || 'Erro'));
+        return;
+      }
       showToast("🔌 Memory Card desmontado! Slot liberado para cartão físico.");
       setTimeout(function() {
         location.reload();
@@ -689,6 +693,12 @@ function ejectMicroSD() {
   fetch('/api/eject_sd', { method: 'POST' })
     .then(r => r.json())
     .then(data => {
+      if (data.status !== 'ok') {
+        alert("Não foi possível ejetar: " + (data.message || 'Erro'));
+        if (btn) { btn.disabled = false; }
+        fetchStatus();
+        return;
+      }
       alert("✔ Cartão MicroSD desmontado com sucesso!\nVocê já pode remover o cartão fisicamente do console com segurança.");
       fetchStatus();
       setTimeout(function() {
@@ -887,6 +897,13 @@ function saveConfig(e) {
   })
   .then(r => r.json())
   .then(data => {
+    if (data.status !== 'ok') {
+      alertBox.style.background = 'rgba(255,59,48,0.15)';
+      alertBox.style.color = '#ff6b6b';
+      alertBox.style.border = '1px solid var(--ps-red)';
+      alertBox.innerText = 'Configuração inválida: ' + (data.message || 'erro desconhecido');
+      return;
+    }
     alertBox.style.background = 'rgba(0,230,118,0.15)';
     alertBox.style.color = 'var(--ps-green)';
     alertBox.style.border = '1px solid var(--ps-green)';

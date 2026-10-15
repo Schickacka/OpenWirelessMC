@@ -157,7 +157,7 @@ namespace openmc
             io_conf.pin_bit_mask = 1ULL << kSEL_Pin;
             io_conf.mode = GPIO_MODE_INPUT;
             io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-            io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+            io_conf.pull_up_en = GPIO_PULLUP_DISABLE; // GPIO35 is input-only: it has no internal pull-up (the console drives SEL)
             gpio_config(&io_conf);
             GPIO.pin[kSEL_Pin].int_ena = BIT(0);
 

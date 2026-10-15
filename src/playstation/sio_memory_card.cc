@@ -23,6 +23,7 @@ namespace openmc
       static char debug_string[] = "MC event %2X\n";
 #endif
       uint8_t DRAM_ATTR memory_card_ram[131072] = {};
+      uint8_t DRAM_ATTR sector_version[1024] = {};
 
       uint8_t DRAM_ATTR flag = Flags::kDirectoryUnread;
 
@@ -43,11 +44,11 @@ namespace openmc
 
       static uint8_t DRAM_ATTR data_buffer[128];
 
-      uint8_t DRAM_ATTR game_id[256];
+      uint8_t DRAM_ATTR game_id[64];
       uint8_t DRAM_ATTR game_id_length = 0;
       volatile bool DRAM_ATTR game_id_updated = false;
 
-      McTraceEntry DRAM_ATTR trace_ring[32] = {};
+      McTraceEntry DRAM_ATTR trace_ring[8] = {};
       volatile uint32_t DRAM_ATTR trace_write_idx = 0;
       volatile uint32_t DRAM_ATTR trace_read_idx = 0;
       volatile uint32_t DRAM_ATTR pad_poll_count = 0;
@@ -81,6 +82,9 @@ namespace openmc
 
           if (sector_changed)
           {
+            // Order matters: data first, then the version, then the dirty flag.
+            sector_version[sector]++;
+            __sync_synchronize();
             committed_to_storage = false;
           }
           last_write_tick = sio::event_ticks;
@@ -116,7 +120,7 @@ namespace openmc
           }
           if (should_record)
           {
-            uint32_t idx = trace_write_idx & 31;
+            uint32_t idx = trace_write_idx & 7;
             trace_ring[idx].event_tick = (uint32_t)sio::event_ticks;
             trace_ring[idx].addr = trace_addr;
             trace_ring[idx].cmd = trace_cmd;

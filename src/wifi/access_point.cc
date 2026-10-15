@@ -122,9 +122,10 @@ namespace openmc
                 strcpy(wifi::ip_address, "192.168.4.1");
                 strcpy((char *)&wifi::ssid, (char *)system::settings.ssid);
 
-                ESP_LOGI(kLogPrefix, "AP Started: SSID='%s' Password='%s' (len=%d) channel=%d IP=%s", 
-                         (char *)wifi_config.ap.ssid, (char *)wifi_config.ap.password, 
-                         strlen((char *)wifi_config.ap.password), wifi_config.ap.channel, wifi::ip_address);
+                // The password is intentionally NOT logged: the log ring buffer is served at /api/logs
+                ESP_LOGI(kLogPrefix, "AP Started: SSID='%s' auth=%s channel=%d IP=%s",
+                         (char *)wifi_config.ap.ssid,
+                         (wifi_config.ap.authmode == WIFI_AUTH_OPEN) ? "open" : "WPA2", wifi_config.ap.channel, wifi::ip_address);
 
                 wifi::ready = true;
             }

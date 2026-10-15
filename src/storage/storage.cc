@@ -4,18 +4,35 @@
 #include "playstation/sio.h"
 #include "playstation/sio_memory_card.h"
 #include "playstation/spi.h"
+#include "pins.h"
 #include "storage/sdcard.h"
 #include "system/timer.h"
 
 #include "logging.h"
 
+#include <sdkconfig.h>
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
+#include <driver/gpio.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
+#include <unistd.h>
+#include <sys/stat.h>
+
+#define CARD_SIZE_BYTES (128 * 1024)
+#define CARD_SECTOR_COUNT 1024
+#define CARD_SECTOR_SIZE 128
+
+// A save is flushed to the SD card once the console has been quiet for this many SIO transactions
+// (~60 per second on NTSC, ~50 on PAL), or after kMaxDirtyMs even if traffic never stops.
+#define FLUSH_QUIET_TICKS 15
+#define FLUSH_MAX_DIRTY_MS 1000
+#define FLUSH_RETRY_DELAY_MS 3000
 
 namespace openmc
 {
@@ -25,76 +42,117 @@ namespace openmc
     char base_path[16];
     bool ready = false;
 
+    // Last sector_version[] value that is known to be on the SD card (storage side only).
+    static uint8_t *saved_version = NULL;
+
+    // The web server, the write task and the GameID switch all touch the card file and the RAM image.
+    static SemaphoreHandle_t storage_mutex = NULL;
+
+    class StorageLock
+    {
+    public:
+      StorageLock()
+      {
+        if (storage_mutex)
+        {
+          xSemaphoreTakeRecursive(storage_mutex, portMAX_DELAY);
+        }
+      }
+      ~StorageLock()
+      {
+        if (storage_mutex)
+        {
+          xSemaphoreGiveRecursive(storage_mutex);
+        }
+      }
+    };
+
+    static void MarkAllSectorsSaved()
+    {
+      if (!saved_version) return;
+      for (int i = 0; i < CARD_SECTOR_COUNT; i++)
+      {
+        saved_version[i] = sio::memory_card::sector_version[i];
+      }
+    }
+
+    static TickType_t MsToTicks(uint32_t ms)
+    {
+      TickType_t ticks = pdMS_TO_TICKS(ms);
+      return ticks > 0 ? ticks : 1; // never 0: vTaskDelay(0) would busy-loop and starve the idle task
+    }
+
     void Task_Write(void *params)
     {
       uint8_t write_fail_count = 0;
-      uint32_t wait_start_time = 0;
+      uint32_t dirty_since_ms = 0;
+      uint32_t last_hb_ms = 0;
+      bool led_on = false;
 
       ESP_LOGI(kLogPrefix, "Entering write task loop\n");
       while (1)
       {
-        while (sio::memory_card::committed_to_storage == false)
-        {
-          if (write_fail_count < MAX_WRITE_FAILURES)
-          {
-            if (write_fail_count == 0)
-            {
-              // Using this to watch for total inactivity of SIO traffic
-              wait_start_time = system::timer::timestamp;
-            }
+        bool dirty = (sio::memory_card::committed_to_storage == false);
 
-            // if wait period in ticks or milliseconds reached, proceed with write
-            // Roughly 60ish event ticks a second on an NTSC system
-            // So in theory this should wait 2 seconds after a write is finished
-            if ((sio::event_ticks - sio::memory_card::last_write_tick >= 120) || system::timer::timestamp - wait_start_time >= 2000)
+        // LED = "card image has changes that are not on the SD card yet"
+        if (dirty != led_on)
+        {
+          led_on = dirty;
+          gpio_set_level(kPin_LED, dirty ? 1 : 0);
+        }
+
+        if (dirty)
+        {
+          uint32_t now_ms = (uint32_t)system::timer::timestamp;
+          if (dirty_since_ms == 0)
+          {
+            dirty_since_ms = (now_ms != 0) ? now_ms : 1;
+          }
+
+          // Quiet = the console stopped writing. event_ticks counts SIO transactions (pad polls included).
+          bool quiet = (sio::event_ticks - sio::memory_card::last_write_tick) >= FLUSH_QUIET_TICKS;
+          bool too_long = (now_ms - dirty_since_ms) >= FLUSH_MAX_DIRTY_MS;
+
+          if (!ready || loaded_file_path[0] == '\0')
+          {
+            // Nowhere to save to (SD ejected or card unloaded): do not retry forever
+            sio::memory_card::committed_to_storage = true;
+            dirty_since_ms = 0;
+          }
+          else if (quiet || too_long)
+          {
+            if (FlushPending())
             {
-              //ESP_LOGI(kLogPrefix, "event_ticks - last_write_tick = %lli\n", (sio::event_ticks - sio::memory_card::last_write_tick));
-              //ESP_LOGI(kLogPrefix, "%lli - %i = %lli", system::timer::timestamp, wait_start_time, system::timer::timestamp - wait_start_time);
-              if (WriteFile() != 0)
-              {
-                write_fail_count++;
-                ESP_LOGW(kLogPrefix, "Write fail count %i, delay 1 second\n", write_fail_count);
-                vTaskDelay(1000 / portTICK_PERIOD_MS);
-              }
-              else
-              {
-                sio::memory_card::committed_to_storage = true;
-                write_fail_count = 0;
-                wait_start_time = 0;
-              }
+              write_fail_count = 0;
+              dirty_since_ms = 0;
             }
             else
             {
-              vTaskDelay(portTICK_PERIOD_MS);
+              // Keep the data (and the dirty flag): it is saved as soon as the SD card works again
+              if (write_fail_count < 255)
+              {
+                write_fail_count++;
+              }
+              ESP_LOGW(kLogPrefix, "Write failed (attempt %u), retrying in %d ms\n", write_fail_count, FLUSH_RETRY_DELAY_MS);
+              vTaskDelay(MsToTicks(FLUSH_RETRY_DELAY_MS));
             }
           }
-          else
-          {
-            // To-do: Implement plan b here.
-            // For now, toggle this just so we don't infinite loop
-            sio::memory_card::committed_to_storage = true;
-            write_fail_count = 0;
-            wait_start_time = 0;
-            ESP_LOGE(kLogPrefix, "Bailed on write!\n");
-            //break; // break from inner loop
-          }
         }
+
         if (sio::memory_card::game_id_updated)
         {
           __sync_synchronize();
           sio::memory_card::game_id_updated = false;
-          if (sio::memory_card::committed_to_storage == false)
-          {
-            WriteFile();
-            sio::memory_card::committed_to_storage = true;
-          }
-          ESP_LOGI(kLogPrefix, "PicoStation GameID detected: %s\n", (char *)sio::memory_card::game_id);
-          SwitchToGameID((char *)sio::memory_card::game_id);
+
+          char gid[64];
+          strlcpy(gid, (const char *)sio::memory_card::game_id, sizeof(gid));
+          ESP_LOGI(kLogPrefix, "PicoStation GameID detected: %s\n", gid);
+          SwitchToGameID(gid);
         }
 
         while (sio::memory_card::trace_read_idx != sio::memory_card::trace_write_idx)
         {
-          uint32_t idx = sio::memory_card::trace_read_idx & 31;
+          uint32_t idx = sio::memory_card::trace_read_idx & 7;
           sio::memory_card::McTraceEntry e = sio::memory_card::trace_ring[idx];
           sio::memory_card::trace_read_idx++;
           if (e.cmd != 0x20)
@@ -106,147 +164,20 @@ namespace openmc
           }
         }
 
-        static uint32_t last_hb_ms = 0;
-        if (system::timer::timestamp - last_hb_ms >= 5000)
+        uint32_t hb_now_ms = (uint32_t)system::timer::timestamp;
+        if (hb_now_ms - last_hb_ms >= 5000)
         {
-          last_hb_ms = system::timer::timestamp;
+          last_hb_ms = hb_now_ms;
           ESP_LOGI(kLogPrefix, "[MC_HB] ev_ticks=%u pads=%u b0abt=%u glt=%u flag=0x%02X\n",
                    (uint32_t)sio::event_ticks, (uint32_t)sio::memory_card::pad_poll_count,
                    (uint32_t)sio::memory_card::abort_byte0_count, (uint32_t)spi::sel_glitch_count,
                    sio::memory_card::flag);
         }
 
-        vTaskDelay(portTICK_PERIOD_MS);
+        vTaskDelay(MsToTicks(10));
       }
 
       vTaskDelete(NULL);
-    }
-
-    void Init()
-    {
-      if (sdcard::Init() == ESP_OK)
-      {
-        strcpy(storage::base_path, "/sdcard");
-        // Mount successful
-        storage::ready = true;
-      }
-      /*
-      // To-do: Figure out how ram filesystem should work
-      // File only exists in memory, but should be able to
-      // download/upload directly to ram from web ui(overwrite),
-      // save, delete, an downlaod.
-      else
-      {
-        // Fallback option if all else fails
-        // MC Image only persists in memory
-        strcpy(base_path, "/ramfs");
-      }*/
-
-      // Load default.mc, create file if it doesn't exist.
-      snprintf(loaded_file_path, sizeof(loaded_file_path), "%s/default.mc", base_path);
-      if (!LoadCardFromFile(loaded_file_path, sio::memory_card::memory_card_ram))
-      {
-        sio::memory_card::committed_to_storage = false;
-      }
-    }
-
-    bool LoadCardFromFile(char *filepath, void *destination)
-    {
-      FILE *mc_file;
-      sio::SetMemoryCardEmulation(false);
-      vTaskDelay(250 / portTICK_PERIOD_MS);
-
-      ESP_LOGI(kLogPrefix, "LoadCardFromFile(%s)\n", filepath);
-      mc_file = fopen(filepath, "r");
-      uint8_t *dest = (uint8_t *)destination;
-
-      long file_size;
-
-      if (!mc_file)
-      {
-        ESP_LOGE(kLogPrefix, "Error opening file!\n");
-        return false;
-      }
-      else
-      {
-        fseek(mc_file, 0, SEEK_END);
-        file_size = ftell(mc_file);
-        if (file_size <= 0)
-        {
-          ESP_LOGE(kLogPrefix, "File is empty\n");
-          fclose(mc_file);
-          return false;
-        }
-
-        rewind(mc_file);
-
-        if (file_size != (128 * 1024))
-        {
-          ESP_LOGE(kLogPrefix, "Invalid File size!\n");
-          fclose(mc_file);
-          return false;
-        }
-
-        fread(dest, 1, file_size, mc_file);
-        fclose(mc_file);
-
-        strlcpy(loaded_file_path, filepath, sizeof(loaded_file_path));
-
-        sio::memory_card::flag = sio::memory_card::Flags::kDirectoryUnread;
-        sio::memory_card::GoIdle();
-        sio::memory_card::last_write_tick = sio::event_ticks;
-        sio::memory_card::committed_to_storage = true;
-      }
-
-      sio::SetMemoryCardEmulation(true);
-
-      return true;
-    }
-
-    int WriteFile()
-    {
-      int result;
-      FILE *mc_file;
-      uint32_t write_end_time;
-      uint32_t write_start_time = system::timer::timestamp;
-
-      if (strcmp(loaded_file_path, "") == 0)
-      {
-        ESP_LOGE(kLogPrefix, "No file loaded, abort write\n");
-        return -4;
-      }
-
-      ESP_LOGI(kLogPrefix, "WriteFile(%s)\n", loaded_file_path);
-      mc_file = fopen(loaded_file_path, "w");
-
-      if (!mc_file)
-      {
-        ESP_LOGE(kLogPrefix, "Error opening file!\n");
-        result = -1;
-      }
-      else
-      {
-        if (fwrite(sio::memory_card::memory_card_ram, 1, (128 * 1024), mc_file) != (128 * 1024))
-        {
-          ESP_LOGE(kLogPrefix, "Error writing file!\n");
-          result = -2;
-        }
-        else if (ferror(mc_file) != 0)
-        {
-          ESP_LOGE(kLogPrefix, "Unknown error writing file!\n");
-          result = -3;
-        }
-        else
-        {
-          write_end_time = system::timer::timestamp;
-          ESP_LOGI(kLogPrefix, "File written in %ims\n", write_end_time - write_start_time);
-          result = 0;
-        }
-
-        fclose(mc_file);
-      }
-
-      return result;
     }
 
     bool CreateBlankFormattedCard(const char *filepath)
@@ -259,28 +190,323 @@ namespace openmc
         return false;
       }
 
-      // Write Block 0 (8192 bytes = 64 frames) using the authentic Sony template (from sd2psX)
-      fwrite(ps1_empty_card, 1, sizeof(ps1_empty_card), f);
+      bool ok = true;
 
-      // Write Blocks 1 to 15 (15 * 64 frames = 960 frames) filled with 0xFF
-      uint8_t buffer[128];
-      memset(buffer, 0xFF, 128);
-      for (int i = 64; i < 1024; i++)
+      // Block 0 (8192 bytes = 64 frames): Sony's template (from sd2psX)
+      if (fwrite(ps1_empty_card, 1, sizeof(ps1_empty_card), f) != sizeof(ps1_empty_card))
       {
-        fwrite(buffer, 1, 128, f);
+        ok = false;
       }
 
-      fclose(f);
+      // Blocks 1 to 15 (960 frames) filled with 0xFF
+      uint8_t buffer[CARD_SECTOR_SIZE];
+      memset(buffer, 0xFF, sizeof(buffer));
+      for (int i = (int)(sizeof(ps1_empty_card) / CARD_SECTOR_SIZE); ok && i < CARD_SECTOR_COUNT; i++)
+      {
+        if (fwrite(buffer, 1, sizeof(buffer), f) != sizeof(buffer))
+        {
+          ok = false;
+        }
+      }
+
+      if (ok && fflush(f) != 0)
+      {
+        ok = false;
+      }
+      if (ok)
+      {
+        fsync(fileno(f));
+      }
+      if (fclose(f) != 0)
+      {
+        ok = false;
+      }
+
+      if (!ok)
+      {
+        ESP_LOGE(kLogPrefix, "Failed to write new card file (SD full or error): %s\n", filepath);
+        unlink(filepath); // never leave a truncated card behind
+        return false;
+      }
+
       ESP_LOGI(kLogPrefix, "New formatted card created successfully!\n");
       return true;
     }
 
+    // Writes only the sectors the console changed since the last save, in place.
+    // Compared with rewriting the whole 128 KB file (which truncated it first):
+    //  - a power cut mid-write can only affect the sectors being written, not the whole card;
+    //  - it takes a few milliseconds instead of hundreds;
+    //  - a sector the console writes while we are flushing is never lost (version counters).
+    int WriteFile()
+    {
+      StorageLock lock;
+
+      if (loaded_file_path[0] == '\0')
+      {
+        ESP_LOGE(kLogPrefix, "No file loaded, abort write\n");
+        return -4;
+      }
+
+      uint32_t write_start_time = (uint32_t)system::timer::timestamp;
+
+      FILE *f = fopen(loaded_file_path, "r+b");
+      if (!f)
+      {
+        // File was deleted/renamed behind our back: recreate it with the whole image
+        f = fopen(loaded_file_path, "wb");
+        if (!f)
+        {
+          ESP_LOGE(kLogPrefix, "Error opening file %s (errno %d)\n", loaded_file_path, errno);
+          return -1;
+        }
+        if (saved_version)
+        {
+          for (int i = 0; i < CARD_SECTOR_COUNT; i++)
+          {
+            saved_version[i] = (uint8_t)(sio::memory_card::sector_version[i] - 1);
+          }
+        }
+      }
+
+      int result = 0;
+      int sectors_written = 0;
+      uint8_t sector_buffer[CARD_SECTOR_SIZE];
+
+      for (int s = 0; s < CARD_SECTOR_COUNT; s++)
+      {
+        uint8_t version = sio::memory_card::sector_version[s];
+        if (saved_version && version == saved_version[s])
+        {
+          continue;
+        }
+
+        // Snapshot the sector; retry if the SIO core commits it while we copy
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+          version = sio::memory_card::sector_version[s];
+          memcpy(sector_buffer, &sio::memory_card::memory_card_ram[s * CARD_SECTOR_SIZE], CARD_SECTOR_SIZE);
+          if (version == sio::memory_card::sector_version[s])
+          {
+            break;
+          }
+        }
+
+        if (fseek(f, (long)s * CARD_SECTOR_SIZE, SEEK_SET) != 0 ||
+            fwrite(sector_buffer, 1, CARD_SECTOR_SIZE, f) != CARD_SECTOR_SIZE)
+        {
+          ESP_LOGE(kLogPrefix, "Error writing sector %d (errno %d)\n", s, errno);
+          result = -2;
+          break;
+        }
+
+        if (saved_version)
+        {
+          saved_version[s] = version;
+        }
+        sectors_written++;
+      }
+
+      if (result == 0 && fflush(f) != 0)
+      {
+        result = -3;
+      }
+      if (result == 0)
+      {
+        fsync(fileno(f));
+      }
+      if (fclose(f) != 0 && result == 0)
+      {
+        result = -3;
+      }
+
+      if (result == 0)
+      {
+        ESP_LOGI(kLogPrefix, "Saved %d sector(s) to %s in %ims\n", sectors_written, loaded_file_path,
+                 (int)((uint32_t)system::timer::timestamp - write_start_time));
+      }
+      else
+      {
+        // Whatever was not confirmed on disk stays dirty (saved_version only advances on success),
+        // but we do not know the state of the sector that failed.
+        ESP_LOGE(kLogPrefix, "WriteFile failed (%d)\n", result);
+      }
+
+      return result;
+    }
+
+    // Saves pending changes. Returns true when there is nothing left to save.
+    bool FlushPending()
+    {
+      StorageLock lock;
+
+      if (sio::memory_card::committed_to_storage)
+      {
+        return true;
+      }
+
+      if (!ready || loaded_file_path[0] == '\0')
+      {
+        // Nowhere to save to
+        sio::memory_card::committed_to_storage = true;
+        return true;
+      }
+
+      // Clear the flag BEFORE writing. If the console writes again meanwhile, Commit() raises it again and
+      // the next pass saves that sector. (Clearing it after the write used to lose such updates.)
+      sio::memory_card::committed_to_storage = true;
+      if (WriteFile() == 0)
+      {
+        return true;
+      }
+
+      sio::memory_card::committed_to_storage = false;
+      return false;
+    }
+
+    // Loads a 128 KB card image into RAM and presents it to the console.
+    // A bad file never disturbs the card that is currently mounted.
+    static bool LoadCardImpl(const char *filepath, void *destination, uint32_t settle_ms)
+    {
+      StorageLock lock;
+
+      // filepath may alias loaded_file_path
+      char path[CONFIG_FATFS_MAX_LFN + 1];
+      strlcpy(path, filepath, sizeof(path));
+
+      uint8_t *dest = destination ? (uint8_t *)destination : sio::memory_card::memory_card_ram;
+
+      ESP_LOGI(kLogPrefix, "LoadCardFromFile(%s)\n", path);
+
+      struct stat st;
+      if (stat(path, &st) != 0)
+      {
+        ESP_LOGE(kLogPrefix, "Error opening file!\n");
+        return false;
+      }
+      if (st.st_size != CARD_SIZE_BYTES)
+      {
+        ESP_LOGE(kLogPrefix, "Invalid file size (%ld bytes, expected %d)!\n", (long)st.st_size, CARD_SIZE_BYTES);
+        return false;
+      }
+
+      FILE *f = fopen(path, "rb");
+      if (!f)
+      {
+        ESP_LOGE(kLogPrefix, "Error opening file!\n");
+        return false;
+      }
+
+      // Never drop unsaved changes of the card being replaced
+      if (!FlushPending())
+      {
+        ESP_LOGE(kLogPrefix, "Could not save the current card; keeping it mounted.\n");
+        fclose(f);
+        return false;
+      }
+
+      sio::SetMemoryCardEmulation(false);
+      if (settle_ms > 0)
+      {
+        vTaskDelay(MsToTicks(settle_ms));
+      }
+
+      size_t got = fread(dest, 1, CARD_SIZE_BYTES, f);
+      fclose(f);
+
+      if (got != CARD_SIZE_BYTES)
+      {
+        // RAM now holds a mix of two cards. Do not present it and make sure it can never be written back.
+        ESP_LOGE(kLogPrefix, "Short read (%u bytes)! Card unloaded.\n", (unsigned)got);
+        loaded_file_path[0] = '\0';
+        sio::memory_card::committed_to_storage = true;
+        return false; // emulation stays disabled
+      }
+
+      strlcpy(loaded_file_path, path, sizeof(loaded_file_path));
+      MarkAllSectorsSaved();
+
+      sio::memory_card::flag = sio::memory_card::Flags::kDirectoryUnread;
+      sio::memory_card::GoIdle();
+      sio::memory_card::last_write_tick = sio::event_ticks;
+      sio::memory_card::committed_to_storage = true;
+
+      sio::SetMemoryCardEmulation(true);
+
+      return true;
+    }
+
+    bool LoadCardFromFile(char *filepath, void *destination)
+    {
+      return LoadCardImpl(filepath, destination, 250);
+    }
+
+    // Mounts <SD>/default.mc, creating a blank formatted card if it does not exist yet.
+    static bool MountDefaultCard(uint32_t settle_ms)
+    {
+      char target[CONFIG_FATFS_MAX_LFN + 1];
+      snprintf(target, sizeof(target), "%s/default.mc", base_path);
+
+      struct stat st;
+      if (stat(target, &st) != 0)
+      {
+        ESP_LOGW(kLogPrefix, "default.mc not found, creating a blank formatted card.\n");
+        if (!CreateBlankFormattedCard(target))
+        {
+          return false;
+        }
+      }
+
+      return LoadCardImpl(target, sio::memory_card::memory_card_ram, settle_ms);
+    }
+
+    void Init()
+    {
+      if (storage_mutex == NULL)
+      {
+        storage_mutex = xSemaphoreCreateRecursiveMutex();
+      }
+
+      if (saved_version == NULL)
+      {
+        saved_version = (uint8_t *)malloc(CARD_SECTOR_COUNT);
+        if (saved_version)
+        {
+          memset(saved_version, 0, CARD_SECTOR_COUNT);
+        }
+      }
+
+      loaded_file_path[0] = '\0';
+
+      if (sdcard::Init() == ESP_OK)
+      {
+        strcpy(storage::base_path, "/sdcard");
+        storage::ready = true;
+
+        // SIO is not running yet at this point, so there is no need to wait for the console
+        if (!MountDefaultCard(0))
+        {
+          // Better "no card" than a wrong or damaged one; default.mc is left untouched
+          ESP_LOGE(kLogPrefix, "Could not mount default.mc: memory card emulation disabled.\n");
+          loaded_file_path[0] = '\0';
+          sio::SetMemoryCardEmulation(false);
+        }
+      }
+      else
+      {
+        ESP_LOGE(kLogPrefix, "SD card not available: memory card emulation disabled until it is mounted.\n");
+        sio::SetMemoryCardEmulation(false);
+      }
+    }
+
     bool SwitchToGameID(const char *game_id_str)
     {
-      if (!game_id_str || strlen(game_id_str) == 0)
+      if (!game_id_str || strlen(game_id_str) == 0 || !ready)
       {
         return false;
       }
+
+      StorageLock lock;
 
       ESP_LOGI(kLogPrefix, "SwitchToGameID: Raw GameID received: '%s'\n", game_id_str);
 
@@ -398,10 +624,14 @@ namespace openmc
       {
         snprintf(found_path, sizeof(found_path), "%s/%s-1.mc", base_path, clean_id);
         ESP_LOGI(kLogPrefix, "SwitchToGameID: No existing save file found. Creating '%s'...\n", found_path);
-        CreateBlankFormattedCard(found_path);
+        if (!CreateBlankFormattedCard(found_path))
+        {
+          ESP_LOGE(kLogPrefix, "SwitchToGameID: could not create '%s'; keeping the current card.\n", found_path);
+          return false;
+        }
       }
 
-      if (strcmp(loaded_file_path, found_path) == 0)
+      if (strcasecmp(loaded_file_path, found_path) == 0)
       {
         ESP_LOGI(kLogPrefix, "GameID save %s is already loaded. Cycling card connection for ODE/Game detection.\n", found_path);
         sio::SetMemoryCardEmulation(false);
@@ -417,12 +647,13 @@ namespace openmc
 
     bool UnloadCard()
     {
+      StorageLock lock;
+
       ESP_LOGI(kLogPrefix, "UnloadCard: disabling MC emulation and clearing slot.\n");
-      // Flush any pending write if not yet committed
-      if (sio::memory_card::committed_to_storage == false && strlen(loaded_file_path) > 0)
+      if (!FlushPending())
       {
-        WriteFile();
-        sio::memory_card::committed_to_storage = true;
+        ESP_LOGE(kLogPrefix, "UnloadCard: could not save pending changes, card kept mounted.\n");
+        return false;
       }
       sio::SetMemoryCardEmulation(false);
       loaded_file_path[0] = '\0';
@@ -431,12 +662,13 @@ namespace openmc
 
     bool SafelyUnmountSD()
     {
+      StorageLock lock;
+
       ESP_LOGI(kLogPrefix, "SafelyUnmountSD: committing saves and unmounting FATFS...\n");
-      // Flush any pending save before unmounting
-      if (sio::memory_card::committed_to_storage == false && strlen(loaded_file_path) > 0)
+      if (!FlushPending())
       {
-        WriteFile();
-        sio::memory_card::committed_to_storage = true;
+        ESP_LOGE(kLogPrefix, "SafelyUnmountSD: could not save pending changes, SD kept mounted.\n");
+        return false;
       }
       sio::SetMemoryCardEmulation(false);
       loaded_file_path[0] = '\0';
@@ -452,6 +684,8 @@ namespace openmc
 
     bool RemountSD()
     {
+      StorageLock lock;
+
       ESP_LOGI(kLogPrefix, "RemountSD: attempting to remount MicroSD card...\n");
       if (storage::ready)
       {
@@ -463,10 +697,10 @@ namespace openmc
         strcpy(storage::base_path, "/sdcard");
         storage::ready = true;
 
-        // Try mounting default.mc
-        char target[CONFIG_FATFS_MAX_LFN + 1];
-        snprintf(target, sizeof(target), "%s/default.mc", storage::base_path);
-        LoadCardFromFile(target, sio::memory_card::memory_card_ram);
+        if (!MountDefaultCard(250))
+        {
+          ESP_LOGW(kLogPrefix, "RemountSD: SD mounted, but no card could be loaded from default.mc.\n");
+        }
         ESP_LOGI(kLogPrefix, "RemountSD: successfully remounted MicroSD card!\n");
         return true;
       }

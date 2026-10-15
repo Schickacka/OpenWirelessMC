@@ -36,7 +36,7 @@
 //#define FILE_WRITE_TASK_SIZE 1760
 #define GUI_TASK_SIZE 2048
 #define TOUCH_INPUT_TASK_SIZE 2048
-#define FILE_WRITE_TASK_SIZE 3096
+#define FILE_WRITE_TASK_SIZE 6144 // FATFS + stdio + ESP_LOG + SwitchToGameID need well over 3 KB of stack
 
 //#define STARTUP_DELAY_MS 500
 
@@ -156,15 +156,30 @@ namespace openmc
         if (system::settings.wifi_mode == wifi::Mode::kClient || system::settings.wifi_mode == wifi::Mode::kAcessPoint)
         {
             int sd_wait_count = 0;
-            while (wifi::ready == false || (storage::ready == false && sd_wait_count < 3))
+            int total_wait_count = 0;
+            while ((wifi::ready == false || (storage::ready == false && sd_wait_count < 3)) && total_wait_count < 15)
             {
                 ESP_LOGI(kLogPrefix, "Waiting for network & storage ready... (wifi=%d, storage=%d)", wifi::ready, storage::ready);
                 vTaskDelay(2000 / portTICK_PERIOD_MS);
                 sd_wait_count++;
+                total_wait_count++;
             }
 
-            ESP_ERROR_CHECK(web::file_server::start_file_server(storage::base_path));
-            ESP_LOGI(kLogPrefix, "Web File Server started at http://%s !", wifi::ip_address);
+            // A web server failure must never take the memory card down with it
+            // (ESP_ERROR_CHECK would abort() and reboot the ESP32 in the middle of a game).
+            esp_err_t server_err = ESP_FAIL;
+            if (wifi::ready)
+            {
+                server_err = web::file_server::start_file_server(storage::base_path);
+            }
+            if (server_err == ESP_OK)
+            {
+                ESP_LOGI(kLogPrefix, "Web File Server started at http://%s !", wifi::ip_address);
+            }
+            else
+            {
+                ESP_LOGE(kLogPrefix, "Web File Server NOT started (wifi ready=%d, err=0x%x). The memory card keeps working.", wifi::ready, server_err);
+            }
 
             // Initialize mDNS service (wirelessmc.local)
             esp_err_t mdns_err = mdns_init();

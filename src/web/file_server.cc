@@ -53,8 +53,18 @@
 /* Scratch buffer size */
 #define SCRATCH_BUFSIZE 8192
 
-#define IS_FILE_EXT(filename, ext) \
-    (strcasecmp(&filename[strlen(filename) - sizeof(ext) + 1], ext) == 0)
+// Safe suffix check (the old macro read before the start of the string for names shorter than the extension)
+static inline bool has_file_ext(const char *name, const char *ext)
+{
+    size_t name_len = strlen(name);
+    size_t ext_len = strlen(ext);
+    return name_len >= ext_len && strcasecmp(name + name_len - ext_len, ext) == 0;
+}
+#define IS_FILE_EXT(filename, ext) has_file_ext((filename), (ext))
+
+#ifndef ENABLE_OLED
+#define ENABLE_OLED 0
+#endif
 
 namespace openmc
 {
@@ -94,6 +104,99 @@ namespace openmc
                 return ESP_OK;
             }
 
+            // ---- Output helpers -------------------------------------------------------------------
+            // File names come from the SD card (FAT allows spaces, '&', '#', '%', '+', apostrophes...),
+            // so they must never be pasted raw into HTML or into URLs.
+            // NOTE: httpd_resp_send_chunk() with length 0 ENDS the response, so never send empty chunks.
+
+            static void send_html_escaped(httpd_req_t *req, const char *text)
+            {
+                char out[96];
+                size_t used = 0;
+
+                for (const char *p = text; *p != '\0'; p++)
+                {
+                    const char *esc = NULL;
+                    switch (*p)
+                    {
+                    case '&':
+                        esc = "&amp;";
+                        break;
+                    case '<':
+                        esc = "&lt;";
+                        break;
+                    case '>':
+                        esc = "&gt;";
+                        break;
+                    case '"':
+                        esc = "&quot;";
+                        break;
+                    case '\'':
+                        esc = "&#39;";
+                        break;
+                    default:
+                        break;
+                    }
+
+                    size_t need = esc ? strlen(esc) : 1;
+                    if (used + need > sizeof(out))
+                    {
+                        httpd_resp_send_chunk(req, out, used);
+                        used = 0;
+                    }
+                    if (esc)
+                    {
+                        memcpy(out + used, esc, need);
+                    }
+                    else
+                    {
+                        out[used] = *p;
+                    }
+                    used += need;
+                }
+
+                if (used > 0)
+                {
+                    httpd_resp_send_chunk(req, out, used);
+                }
+            }
+
+            // Percent-encodes everything except unreserved characters (and '/' when keep_slash is set).
+            // The result is safe inside an HTML attribute and inside a single-quoted JavaScript string.
+            static void send_url_encoded(httpd_req_t *req, const char *text, bool keep_slash)
+            {
+                static const char hex[] = "0123456789ABCDEF";
+                char out[96];
+                size_t used = 0;
+
+                for (const unsigned char *p = (const unsigned char *)text; *p != '\0'; p++)
+                {
+                    bool plain = (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') ||
+                                 *p == '-' || *p == '_' || *p == '.' || *p == '~' || (keep_slash && *p == '/');
+                    size_t need = plain ? 1 : 3;
+                    if (used + need > sizeof(out))
+                    {
+                        httpd_resp_send_chunk(req, out, used);
+                        used = 0;
+                    }
+                    if (plain)
+                    {
+                        out[used++] = (char)*p;
+                    }
+                    else
+                    {
+                        out[used++] = '%';
+                        out[used++] = hex[*p >> 4];
+                        out[used++] = hex[*p & 0x0F];
+                    }
+                }
+
+                if (used > 0)
+                {
+                    httpd_resp_send_chunk(req, out, used);
+                }
+            }
+
             // Send HTTP response with a run-time generated html consisting of
             // a list of all files and folders under the requested path.
             // In case of SPIFFS this returns empty list when path is any
@@ -125,6 +228,12 @@ namespace openmc
 
                 dirpath_len = strlen(entrypath);
 
+                // URL of the folder being listed (decoded path without the mount point, e.g. "/" or "/folder/")
+                const size_t base_len = strlen(storage::base_path);
+                const char *url_prefix = (base_len > 0 && strncmp(dirpath, storage::base_path, base_len) == 0 && dirpath[base_len] == '/')
+                                             ? dirpath + base_len
+                                             : "/";
+
                 // Get handle to embedded file upload script (Head, CSS, Header, Navigation Tabs, Upload Card)
                 extern const unsigned char upload_script_start[] asm("_binary_upload_script_html_start");
                 extern const unsigned char upload_script_end[] asm("_binary_upload_script_html_end");
@@ -135,7 +244,7 @@ namespace openmc
                 httpd_resp_sendstr_chunk(req, "<div class=\"loaded-card-bar\"><div><div class=\"loaded-label\" data-i18n=\"active_mc_label\">");
                 if (strlen(storage::loaded_file_path) > 0) {
                     httpd_resp_sendstr_chunk(req, "Memory Card Ativo no Console</div><div class=\"loaded-filename\">🎮 ");
-                    httpd_resp_sendstr_chunk(req, storage::loaded_file_path);
+                    send_html_escaped(req, storage::loaded_file_path);
                     httpd_resp_sendstr_chunk(req, "</div></div><div><button type=\"button\" class=\"btn btn-red\" onclick=\"ejectCard()\" style=\"padding:8px 14px; font-size:12px; display:inline-flex; align-items:center; gap:6px;\"><span style=\"font-size:14px;\">⏏</span> <span data-i18n=\"btn_eject\">Desmontar (Liberar Slot)</span></button></div>");
                 } else {
                     httpd_resp_sendstr_chunk(req, "Status do Slot no Console</div><div class=\"loaded-filename\"><span style=\"color:var(--text-muted); font-style:italic;\" data-i18n=\"empty_slot_desc\">📭 Nenhum Save Montado (Slot Liberado para Cartão Físico)</span></div></div>");
@@ -143,7 +252,7 @@ namespace openmc
                 httpd_resp_sendstr_chunk(req, "</div>");
 
                 httpd_resp_sendstr_chunk(req, "<div class=\"path-nav\"><span>Pasta Atual: <b>");
-                httpd_resp_sendstr_chunk(req, temp_dirpath);
+                send_html_escaped(req, temp_dirpath);
                 httpd_resp_sendstr_chunk(req, "</b></span>");
                 if (strcmp(temp_dirpath, "/sdcard") != 0 && strcmp(temp_dirpath, "/sdcard/") != 0) {
                     httpd_resp_sendstr_chunk(req, "<a href=\"../\">⬆️ Subir de Pasta (Parent)</a>");
@@ -200,17 +309,17 @@ namespace openmc
                         bool is_mounted = (strlen(storage::loaded_file_path) > 0 && strcmp(entrypath, storage::loaded_file_path) == 0);
 
                         httpd_resp_sendstr_chunk(req, "<tr><td class=\"game-col\" data-name=\"");
-                        httpd_resp_sendstr_chunk(req, entry->d_name);
+                        send_html_escaped(req, entry->d_name);
                         httpd_resp_sendstr_chunk(req, "\"><span class=\"game-title-text\">-</span></td><td><a href=\"");
-                        httpd_resp_sendstr_chunk(req, req->uri);
-                        httpd_resp_sendstr_chunk(req, entry->d_name);
+                        send_url_encoded(req, url_prefix, true);
+                        send_url_encoded(req, entry->d_name, false);
                         if (is_dir)
                         {
                             httpd_resp_sendstr_chunk(req, "/\">📁 ");
-                            httpd_resp_sendstr_chunk(req, entry->d_name);
+                            send_html_escaped(req, entry->d_name);
                             httpd_resp_sendstr_chunk(req, "/</a></td><td><span class=\"tag tag-dir\">Pasta</span></td><td>-</td><td><a href=\"");
-                            httpd_resp_sendstr_chunk(req, req->uri);
-                            httpd_resp_sendstr_chunk(req, entry->d_name);
+                            send_url_encoded(req, url_prefix, true);
+                            send_url_encoded(req, entry->d_name, false);
                             httpd_resp_sendstr_chunk(req, "/\" class=\"btn btn-green\">Abrir 📂</a></td></tr>\n");
                         }
                         else
@@ -221,7 +330,7 @@ namespace openmc
                             } else {
                                 httpd_resp_sendstr_chunk(req, "📄 ");
                             }
-                            httpd_resp_sendstr_chunk(req, entry->d_name);
+                            send_html_escaped(req, entry->d_name);
                             httpd_resp_sendstr_chunk(req, "</a></td><td>");
                             if (is_mc) {
                                 if (entry_stat.st_size > (128 * 1024)) {
@@ -238,29 +347,29 @@ namespace openmc
                             
                             // Download button
                             httpd_resp_sendstr_chunk(req, "<a href=\"");
-                            httpd_resp_sendstr_chunk(req, req->uri);
-                            httpd_resp_sendstr_chunk(req, entry->d_name);
+                            send_url_encoded(req, url_prefix, true);
+                            send_url_encoded(req, entry->d_name, false);
                             httpd_resp_sendstr_chunk(req, "\" download class=\"btn btn-download\"><span>⬇️</span> <span data-i18n=\"btn_download\">Baixar</span></a>");
 
                             if (is_mc) {
                                 if (!is_mounted) {
                                     httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/mount");
-                                    httpd_resp_sendstr_chunk(req, req->uri);
-                                    httpd_resp_sendstr_chunk(req, entry->d_name);
+                                    send_url_encoded(req, url_prefix, true);
+                                    send_url_encoded(req, entry->d_name, false);
                                     httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\" class=\"btn btn-green\">▲ Montar</button></form>");
 
-                                    httpd_resp_sendstr_chunk(req, "<button type=\"button\" class=\"btn btn-grey\" onclick=\"renameCard('");
-                                    httpd_resp_sendstr_chunk(req, entrypath);
-                                    httpd_resp_sendstr_chunk(req, "', '");
-                                    httpd_resp_sendstr_chunk(req, entry->d_name);
-                                    httpd_resp_sendstr_chunk(req, "')\" style=\"padding:5px 9px; font-size:11px;\">✏️ Renomear</button>");
+                                    httpd_resp_sendstr_chunk(req, "<button type=\"button\" class=\"btn btn-grey\" onclick=\"renameCard(decodeURIComponent('");
+                                    send_url_encoded(req, entrypath, false);
+                                    httpd_resp_sendstr_chunk(req, "'), decodeURIComponent('");
+                                    send_url_encoded(req, entry->d_name, false);
+                                    httpd_resp_sendstr_chunk(req, "'))\" style=\"padding:5px 9px; font-size:11px;\">✏️ Renomear</button>");
                                 }
                             }
 
                             if (!is_mounted) {
                                 httpd_resp_sendstr_chunk(req, "<form method=\"post\" action=\"/delete");
-                                httpd_resp_sendstr_chunk(req, req->uri);
-                                httpd_resp_sendstr_chunk(req, entry->d_name);
+                                send_url_encoded(req, url_prefix, true);
+                                send_url_encoded(req, entry->d_name, false);
                                 httpd_resp_sendstr_chunk(req, "\"><button type=\"submit\" class=\"btn btn-red\" onclick=\"return confirm('Deseja excluir este save permanentemente?')\">● Excluir</button></form>");
                             } else {
                                 httpd_resp_sendstr_chunk(req, "<span style=\"font-size:11px; color:var(--ps-green); font-weight:600;\">🔒 Em Uso</span>");
@@ -314,6 +423,12 @@ namespace openmc
                 {
                     return httpd_resp_set_type(req, "image/x-icon");
                 }
+                else if (IS_FILE_EXT(filename, ".mc") || IS_FILE_EXT(filename, ".mcd") || IS_FILE_EXT(filename, ".mcr") || IS_FILE_EXT(filename, ".bin"))
+                {
+                    // Binary card images: force a download instead of showing garbage as text
+                    httpd_resp_set_hdr(req, "Content-Disposition", "attachment");
+                    return httpd_resp_set_type(req, "application/octet-stream");
+                }
                 /* This is a limited set only */
                 /* For any other type always set as plain text */
                 return httpd_resp_set_type(req, "text/plain");
@@ -321,24 +436,55 @@ namespace openmc
 
             /* Copies the full path into destination buffer and returns
  * pointer to path (skipping the preceding base path) */
+            /* True if any path segment is exactly ".." (directory traversal) */
+            static bool has_dotdot_segment(const char *p)
+            {
+                while (*p)
+                {
+                    while (*p == '/')
+                    {
+                        p++;
+                    }
+                    const char *segment = p;
+                    while (*p && *p != '/')
+                    {
+                        p++;
+                    }
+                    if ((size_t)(p - segment) == 2 && segment[0] == '.' && segment[1] == '.')
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
             static const char *get_path_from_uri(char *dest, const char *base_path, const char *uri, size_t destsize)
             {
+                char raw_path[513];
                 char decoded_uri[513];
-                web::PercentDecode(uri, decoded_uri);
-                web::PercentDecode(base_path, dest);
-                const size_t base_pathlen = strlen(dest);
-                size_t pathlen = strlen(decoded_uri);
 
-                const char *quest = strchr(decoded_uri, '?');
-                if (quest)
+                // The query string starts at the first RAW '?'. (An encoded %3F or %23 is part of the file name.)
+                const size_t raw_len = strcspn(uri, "?");
+                if (raw_len >= sizeof(raw_path))
                 {
-                    pathlen = MIN(pathlen, quest - decoded_uri);
+                    return NULL;
                 }
-                const char *hash = strchr(decoded_uri, '#');
-                if (hash)
+                memcpy(raw_path, uri, raw_len);
+                raw_path[raw_len] = '\0';
+
+                // '+' is a literal character in URL paths (only form bodies treat it as a space)
+                if (!web::PercentDecode(raw_path, decoded_uri, sizeof(decoded_uri), false))
                 {
-                    pathlen = MIN(pathlen, hash - decoded_uri);
+                    return NULL;
                 }
+
+                if (has_dotdot_segment(decoded_uri) || strchr(decoded_uri, '\\') != NULL)
+                {
+                    return NULL;
+                }
+
+                const size_t base_pathlen = strlen(base_path);
+                const size_t pathlen = strlen(decoded_uri);
 
                 if (base_pathlen + pathlen + 1 > destsize)
                 {
@@ -346,9 +492,8 @@ namespace openmc
                     return NULL;
                 }
 
-                /* Construct full path (base + path) */
-                //strcpy(dest, base_path);
-                strlcpy(dest + base_pathlen, decoded_uri, pathlen + 1);
+                memcpy(dest, base_path, base_pathlen);
+                memcpy(dest + base_pathlen, decoded_uri, pathlen + 1);
 
                 /* Return pointer to path, skipping the base */
                 return dest + base_pathlen;
@@ -379,6 +524,13 @@ namespace openmc
                     return http_resp_dir_html(req, filepath);
                 }
 
+                /* config.txt holds the Wi-Fi password: never serve it */
+                if (strcasecmp(filename, "/config.txt") == 0)
+                {
+                    httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Forbidden");
+                    return ESP_FAIL;
+                }
+
                 if (stat(filepath, &file_stat) == -1)
                 {
                     /* If file not present on SPIFFS check if URI
@@ -397,7 +549,7 @@ namespace openmc
                     return ESP_FAIL;
                 }
 
-                fd = fopen(filepath, "r");
+                fd = fopen(filepath, "rb");
                 if (!fd)
                 {
                     ESP_LOGE(kLogPrefix, "Failed to read existing file : %s", filepath);
@@ -680,7 +832,9 @@ namespace openmc
                     httpd_resp_set_status(req, "303 See Other");
                     httpd_resp_set_hdr(req, "Location", redirect_path);
                     httpd_resp_sendstr(req, "File mounted successfully");
+#if ENABLE_OLED
                     gui::WakeDisplay();
+#endif
                 }
                 else
                 {
@@ -712,15 +866,13 @@ namespace openmc
 
                 char filename[64] = "";
                 char *eq = strchr(buf, '=');
-                if (eq)
+                const char *raw_name = eq ? eq + 1 : buf;
+                // Bounded decode (the old code decoded up to 127 bytes into a 64 byte buffer)
+                if (!web::PercentDecode(raw_name, filename, sizeof(filename)))
                 {
-                    char decoded[64];
-                    web::PercentDecode(eq + 1, decoded);
-                    strlcpy(filename, decoded, sizeof(filename));
-                }
-                else
-                {
-                    strlcpy(filename, buf, sizeof(filename));
+                    httpd_resp_set_type(req, "application/json");
+                    httpd_resp_set_status(req, "400 Bad Request");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Nome muito longo! Use no maximo 60 caracteres.\"}");
                 }
 
                 // Check for invalid characters
@@ -736,8 +888,24 @@ namespace openmc
                     strlcat(filename, ".mc", sizeof(filename));
                 }
 
+                if (!storage::ready)
+                {
+                    httpd_resp_set_type(req, "application/json");
+                    httpd_resp_set_status(req, "503 Service Unavailable");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Cartao MicroSD desmontado.\"}");
+                }
+
                 char target_path[FILE_PATH_MAX + 1];
-                snprintf(target_path, sizeof(target_path), "/sdcard/%s", filename);
+                snprintf(target_path, sizeof(target_path), "%s/%s", storage::base_path, filename);
+
+                // Never overwrite an existing file (it could be a save, or config.txt)
+                struct stat existing_stat;
+                if (stat(target_path, &existing_stat) == 0)
+                {
+                    httpd_resp_set_type(req, "application/json");
+                    httpd_resp_set_status(req, "409 Conflict");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Ja existe um arquivo com esse nome!\"}");
+                }
 
                 if (storage::CreateBlankFormattedCard(target_path))
                 {
@@ -756,18 +924,28 @@ namespace openmc
             /* API Handler: POST /api/unload (Eject Memory Card) */
             static esp_err_t api_unload_handler(httpd_req_t *req)
             {
-                storage::UnloadCard();
+                bool ok = storage::UnloadCard();
                 httpd_resp_set_type(req, "application/json");
                 httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+                if (!ok)
+                {
+                    httpd_resp_set_status(req, "500 Internal Server Error");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Falha ao gravar as alteracoes pendentes no MicroSD. O cartao continua montado.\"}");
+                }
                 return httpd_resp_sendstr(req, "{\"status\":\"ok\",\"quote\":\"I can read your mind!\"}");
             }
 
             /* API Handler: POST /api/eject_sd (Safely Eject SD Card) */
             static esp_err_t api_eject_sd_handler(httpd_req_t *req)
             {
-                storage::SafelyUnmountSD();
+                bool ok = storage::SafelyUnmountSD();
                 httpd_resp_set_type(req, "application/json");
                 httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+                if (!ok)
+                {
+                    httpd_resp_set_status(req, "500 Internal Server Error");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Falha ao gravar as alteracoes pendentes. NAO remova o cartao; tente novamente.\"}");
+                }
                 return httpd_resp_sendstr(req, "{\"status\":\"ok\",\"message\":\"Cartao MicroSD ejetado com seguranca! Pronto para remocao fisica.\"}");
             }
 
@@ -792,6 +970,16 @@ namespace openmc
             static esp_err_t api_sio_toggle_handler(httpd_req_t *req)
             {
                 bool new_state = !sio::memory_card_enabled;
+
+                // Without a mounted image there is nothing to present, and the stale RAM contents could not be saved
+                if (new_state && storage::loaded_file_path[0] == '\0')
+                {
+                    httpd_resp_set_type(req, "application/json");
+                    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+                    httpd_resp_set_status(req, "409 Conflict");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Nenhum Memory Card montado.\"}");
+                }
+
                 sio::SetMemoryCardEmulation(new_state);
 
                 ESP_LOGI(kLogPrefix, "SIO Mode toggled: %s", new_state ? "EMULATION ACTIVE" : "PASSTHROUGH / PHYSICAL CARD");
@@ -836,7 +1024,7 @@ namespace openmc
                         char *key = p;
                         char *val = eq + 1;
                         char decoded_val[FILE_PATH_MAX + 1];
-                        web::PercentDecode(val, decoded_val);
+                        web::PercentDecode(val, decoded_val, sizeof(decoded_val));
                         if (strcmp(key, "old_path") == 0)
                         {
                             strlcpy(old_path, decoded_val, sizeof(old_path));
@@ -862,7 +1050,17 @@ namespace openmc
                     return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Novo nome invalido! Nao use espacos ou caracteres especiais (/ \\ : * ? \\\" < > |)\"}");
                 }
 
-                if (strcmp(old_path, storage::loaded_file_path) == 0)
+                // Only files inside the SD card, no directory traversal
+                char sd_prefix[24];
+                snprintf(sd_prefix, sizeof(sd_prefix), "%s/", storage::base_path);
+                if (strncmp(old_path, sd_prefix, strlen(sd_prefix)) != 0 || has_dotdot_segment(old_path) ||
+                    strcmp(new_name, ".") == 0 || strcmp(new_name, "..") == 0)
+                {
+                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
+                    return ESP_FAIL;
+                }
+
+                if (strcasecmp(old_path, storage::loaded_file_path) == 0)
                 {
                     httpd_resp_set_type(req, "application/json");
                     httpd_resp_set_status(req, "400 Bad Request");
@@ -978,7 +1176,7 @@ namespace openmc
                     snprintf(chip_desc, sizeof(chip_desc), "ESP32-D0WD-V3 (Rev %d)", chip_info.revision);
                 }
 
-                char json_resp[768];
+                char json_resp[1024]; // loaded_file can be up to 255 characters
                 snprintf(json_resp, sizeof(json_resp),
                     "{\"sd_total\":%llu,\"sd_free\":%llu,\"sd_mounted\":%s,\"heap_free\":%u,\"heap_min\":%u,\"ram_total\":%u,"
                     "\"wifi_mode\":%d,\"ssid\":\"%s\",\"rssi\":%d,\"ip\":\"%s\","
@@ -1020,8 +1218,8 @@ namespace openmc
                 buf[received] = '\0';
 
                 char mode_val[16] = "client";
-                char ssid_val[64] = "";
-                char pass_val[64] = "";
+                char ssid_val[128] = "";
+                char pass_val[128] = "";
 
                 char *p = strtok(buf, "&");
                 while (p != NULL)
@@ -1032,8 +1230,8 @@ namespace openmc
                         *eq = '\0';
                         char *key = p;
                         char *val = eq + 1;
-                        char decoded_val[64];
-                        web::PercentDecode(val, decoded_val);
+                        char decoded_val[128];
+                        web::PercentDecode(val, decoded_val, sizeof(decoded_val)); // bounded; over-long values fail validation below
                         if (strcmp(key, "mode") == 0)
                         {
                             strlcpy(mode_val, decoded_val, sizeof(mode_val));
@@ -1050,14 +1248,55 @@ namespace openmc
                     p = strtok(NULL, "&");
                 }
 
+                // Validate before touching config.txt: a bad file would only be rejected at the next boot
+                const char *config_error = NULL;
+                size_t ssid_len = strlen(ssid_val);
+                size_t pass_len = strlen(pass_val);
+                bool mode_none = (strcasecmp(mode_val, "none") == 0);
+                if (strcasecmp(mode_val, "ap") != 0 && strcasecmp(mode_val, "client") != 0 && !mode_none)
+                {
+                    config_error = "Modo invalido (use ap, client ou none).";
+                }
+                else if (strpbrk(ssid_val, "\r\n") || strpbrk(pass_val, "\r\n"))
+                {
+                    config_error = "SSID e senha nao podem conter quebras de linha.";
+                }
+                else if (!mode_none && (ssid_len < 1 || ssid_len > 32))
+                {
+                    config_error = "O SSID deve ter de 1 a 32 caracteres.";
+                }
+                else if (!mode_none && pass_len != 0 && (pass_len < 8 || pass_len > 63))
+                {
+                    config_error = "A senha deve ficar em branco (rede aberta) ou ter de 8 a 63 caracteres.";
+                }
+
+                if (config_error != NULL)
+                {
+                    char err_json[200];
+                    snprintf(err_json, sizeof(err_json), "{\"status\":\"error\",\"message\":\"%s\"}", config_error);
+                    httpd_resp_set_type(req, "application/json");
+                    httpd_resp_set_status(req, "400 Bad Request");
+                    return httpd_resp_sendstr(req, err_json);
+                }
+
+                if (!storage::ready)
+                {
+                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD card not mounted");
+                    return ESP_FAIL;
+                }
+
                 FILE *f = fopen("/sdcard/config.txt", "w");
                 if (!f)
                 {
                     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to write config.txt");
                     return ESP_FAIL;
                 }
-                fprintf(f, "# OpenWirelessMC Configuration\nmode=%s\nssid=%s\npassword=%s\n", mode_val, ssid_val, pass_val);
-                fclose(f);
+                int written = fprintf(f, "# OpenWirelessMC Configuration\nmode=%s\nssid=%s\npassword=%s\n", mode_val, ssid_val, pass_val);
+                if (fclose(f) != 0 || written < 0)
+                {
+                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to write config.txt");
+                    return ESP_FAIL;
+                }
 
                 storage::config::LoadConfig();
 

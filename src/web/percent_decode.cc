@@ -1,112 +1,70 @@
 #include "web/percent_decode.h"
 
-#include <string.h>
-
 namespace openmc
 {
     namespace web
     {
-        enum URLParserState
-        {
-            kIdle,
-            kPercentFirstChar,
-            kPercentSecondChar
-        };
-
-        static URLParserState state = kIdle;
-
-        char *decoded_output;
-        static char percent_first_char;
-
-        static int HexToInt(const char hex);
-        static void ProcessNextChar(const char c);
-        static inline void PushChar(const char c);
-
         static int HexToInt(const char hex)
         {
             if (hex >= '0' && hex <= '9')
             {
-                return hex - 48;
+                return hex - '0';
             }
-
             if (hex >= 'A' && hex <= 'F')
             {
-                return hex - 55;
+                return hex - 'A' + 10;
             }
-
             if (hex >= 'a' && hex <= 'f')
             {
-                return hex - 87;
+                return hex - 'a' + 10;
             }
-
-            // Not a valid hex digit
             return -1;
         }
 
-        static inline void PushChar(const char c)
+        // Stateless on purpose: the previous implementation kept its parser state in globals,
+        // so an input ending in a partial "%X" escape corrupted the next (unrelated) call and
+        // concurrent callers could trample each other.
+        bool PercentDecode(const char *encoded, char *decoded, size_t dest_size, bool plus_as_space)
         {
-            // idk strncat spazzes if not properly formed
-            char temp[2] = {c, '\0'};
-            strncat(decoded_output, temp, 2);
-        }
-
-        static void ProcessNextChar(const char c)
-        {
-            switch (state)
+            if (decoded == NULL || dest_size == 0)
             {
-            case URLParserState::kIdle:
-                if (c == '%')
-                {
-                    state = URLParserState::kPercentFirstChar;
-                }
-                else if (c == '+')
-                {
-                    PushChar(' ');
-                }
-                else
-                {
-                    PushChar(c);
-                }
-                break;
-
-            case URLParserState::kPercentFirstChar:
-                if (HexToInt(c) >= 0)
-                {
-                    percent_first_char = c;
-                    state = URLParserState::kPercentSecondChar;
-                }
-                else
-                {
-                    PushChar('%');
-                    PushChar(c);
-                    state = URLParserState::kIdle;
-                }
-                break;
-
-            case URLParserState::kPercentSecondChar:
-                if (HexToInt(c) >= 0)
-                {
-                    PushChar((HexToInt(percent_first_char) * 16) + HexToInt(c));
-                }
-                else
-                {
-                    PushChar('%');
-                    PushChar(percent_first_char);
-                    PushChar(c);
-                }
-
-                state = URLParserState::kIdle;
-                break;
+                return false;
             }
-        }
 
-        void PercentDecode(const char *encoded, char *decoded)
-        {
-            decoded_output = decoded;
-            decoded_output[0] = '\0';
-            char c;
-            while ((c = *encoded++))
-                ProcessNextChar(c);
+            size_t out = 0;
+            bool truncated = false;
+
+            if (encoded != NULL)
+            {
+                for (const char *p = encoded; *p != '\0'; p++)
+                {
+                    char c = *p;
+
+                    if (c == '%' && HexToInt(p[1]) >= 0 && HexToInt(p[2]) >= 0)
+                    {
+                        c = (char)((HexToInt(p[1]) << 4) | HexToInt(p[2]));
+                        p += 2;
+                        if (c == '\0')
+                        {
+                            continue;
+                        }
+                    }
+                    else if (c == '+' && plus_as_space)
+                    {
+                        c = ' ';
+                    }
+
+                    if (out + 1 >= dest_size)
+                    {
+                        truncated = true;
+                        break;
+                    }
+                    decoded[out++] = c;
+                }
+            }
+
+            decoded[out] = '\0';
+            return !truncated;
         }
     } // web
 } // openmc

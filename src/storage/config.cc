@@ -1,17 +1,24 @@
 #include "config.h"
 
+#include "logging.h"
 #include "system/settings.h"
 #include "wifi/wifi.h"
 
+#include <esp_log.h>
+#include <ctype.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
+#ifndef CONFIG_FILE_PATH
+#define CONFIG_FILE_PATH "/sdcard/config.txt"
+#endif
+
+#define MIN_SSID_LENGTH (1)
 #define MAX_SSID_LENGTH (32)
-#define MIN_PASS_LENGTH (8)
+#define MIN_PASS_LENGTH (8) // WPA2 requires at least 8 characters
 #define MAX_PASS_LENGTH (63)
-#define MIN_LINE_LENGTH (3)
-#define MAX_LINE_LENGTH (256) // Longest setting name(password) w/ = sign(9) + longest value length(password)(63) + null terminator(1) = 73
+#define MAX_LINE_LENGTH (256)
 
 namespace openmc
 {
@@ -19,105 +26,157 @@ namespace openmc
     {
         namespace config
         {
+            // Removes trailing CR/LF only (SSIDs and passwords may legitimately contain spaces).
+            static void StripLineEnding(char *s)
+            {
+                size_t len = strlen(s);
+                while (len > 0 && (s[len - 1] == '\r' || s[len - 1] == '\n'))
+                {
+                    s[--len] = '\0';
+                }
+            }
+
+            // Removes leading/trailing whitespace (used for setting names and the mode value).
+            static char *Trim(char *s)
+            {
+                while (*s != '\0' && isspace((unsigned char)*s))
+                {
+                    s++;
+                }
+                size_t len = strlen(s);
+                while (len > 0 && isspace((unsigned char)s[len - 1]))
+                {
+                    s[--len] = '\0';
+                }
+                return s;
+            }
+
+            static void ToLower(char *s)
+            {
+                for (; *s != '\0'; s++)
+                {
+                    *s = (char)tolower((unsigned char)*s);
+                }
+            }
+
             bool LoadConfig()
             {
-                char file_path[] = "/sdcard/config.txt";
-                FILE *config_file;
-
-                char current_line[MAX_LINE_LENGTH]; // To-do: Determine maximum size required
-                char current_setting_name[MAX_LINE_LENGTH];
-                char current_setting_value[MAX_LINE_LENGTH];
-
-                system::Settings temp_settings;
-
-                char *delimiter_location;
-                char *line_ending_location;
-
-                bool found_wifi_mode = false;
-                bool found_ssid = false;
-                bool found_password = false;
-
-                config_file = fopen(file_path, "r");
-
-                if (config_file == 0)
+                FILE *config_file = fopen(CONFIG_FILE_PATH, "r");
+                if (config_file == NULL)
                 {
                     return false;
                 }
 
-                //while (feof(config_file) != EOF && !ferror(config_file))
-                while (fgets(current_line, sizeof(current_line), config_file))
+                char line[MAX_LINE_LENGTH];
+
+                system::Settings temp_settings;
+                memset(&temp_settings, 0, sizeof(temp_settings));
+
+                bool found_wifi_mode = false;
+                bool found_ssid = false;
+                bool found_password = false;
+                bool first_line = true;
+
+                while (fgets(line, sizeof(line), config_file))
                 {
-                    if (strlen(current_line) > MIN_LINE_LENGTH && strlen(current_line) < MAX_LINE_LENGTH)
+                    size_t len = strlen(line);
+
+                    // Over-long line: discard the rest of it instead of parsing a fragment
+                    if (len == sizeof(line) - 1 && line[len - 1] != '\n')
                     {
-                        // Check if comment line, ignore if so
-                        if (current_line[0] == '#')
-                            continue;
+                        int c;
+                        while ((c = fgetc(config_file)) != '\n' && c != EOF)
+                        {
+                        }
+                        first_line = false;
+                        continue;
+                    }
 
-                        // Look for = character
-                        delimiter_location = strchr(current_line, '=');
-                        if (delimiter_location == 0)
-                        {
-                            // Delimiter not found on this line, continue searching
-                            continue;
-                        }
-                        // Trim string to obtain config var name
-                        strncpy(strlwr(current_setting_name), current_line, delimiter_location - current_line);
-                        current_setting_name[delimiter_location - current_line] = '\0';
+                    char *text = line;
 
-                        // Trim string to obtain config setting
-                        strncpy(current_setting_value, delimiter_location + 1, strlen(current_line) - (delimiter_location - current_line));
-                        current_setting_value[strlen(current_line) - (delimiter_location - current_line)] = '\0';
+                    // Skip UTF-8 BOM written by some Windows editors
+                    if (first_line && (unsigned char)text[0] == 0xEF && (unsigned char)text[1] == 0xBB && (unsigned char)text[2] == 0xBF)
+                    {
+                        text += 3;
+                    }
+                    first_line = false;
 
-                        // Null terminate any line endings
-                        line_ending_location = strchr(current_setting_value, '\r');
-                        if (line_ending_location != 0)
-                        {
-                            *line_ending_location = '\0';
-                        }
-                        line_ending_location = strchr(current_setting_value, '\n');
-                        if (line_ending_location != 0)
-                        {
-                            *line_ending_location = '\0';
-                        }
+                    while (*text == ' ' || *text == '\t')
+                    {
+                        text++;
+                    }
 
-                        if (strcmp(current_setting_name, "mode") == 0)
+                    if (*text == '#' || *text == '\r' || *text == '\n' || *text == '\0')
+                    {
+                        continue;
+                    }
+
+                    char *delimiter = strchr(text, '=');
+                    if (delimiter == NULL)
+                    {
+                        continue;
+                    }
+
+                    *delimiter = '\0';
+                    char *name = Trim(text);
+                    ToLower(name);
+                    char *value = delimiter + 1;
+                    StripLineEnding(value);
+
+                    if (strcmp(name, "mode") == 0)
+                    {
+                        char *mode = Trim(value);
+                        ToLower(mode);
+                        if (strcmp(mode, "client") == 0)
                         {
-                            if (strcmp(strlwr(current_setting_value), "client") == 0)
-                            {
-                                temp_settings.wifi_mode = wifi::Mode::kClient;
-                                found_wifi_mode = true;
-                            }
-                            else if (strcmp(strlwr(current_setting_value), "ap") == 0)
-                            {
-                                temp_settings.wifi_mode = wifi::Mode::kAcessPoint;
-                                found_wifi_mode = true;
-                            }
-                            
-                            else if (strcmp(strlwr(current_setting_value), "none") == 0)
-                            {
-                                temp_settings.wifi_mode = wifi::Mode::kNone;
-                                found_wifi_mode = true;
-                            }
+                            temp_settings.wifi_mode = wifi::Mode::kClient;
+                            found_wifi_mode = true;
                         }
-                        else if (strcmp(current_setting_name, "ssid") == 0)
+                        else if (strcmp(mode, "ap") == 0)
                         {
-                            if (strlen(current_setting_value) > 0)
-                            {
-                                memcpy(temp_settings.ssid, current_setting_value, strlen(current_setting_value) + 1);
-                                found_ssid = true;
-                            }
+                            temp_settings.wifi_mode = wifi::Mode::kAcessPoint;
+                            found_wifi_mode = true;
                         }
-                        else if (strcmp(current_setting_name, "password") == 0)
+                        else if (strcmp(mode, "none") == 0)
                         {
-                            // Check if password length is between MIN and MAX, but also allow 0 length password for open authentication
-                            if ((strlen(current_setting_value) >= MIN_PASS_LENGTH && strlen(current_setting_value) <= MAX_PASS_LENGTH) || strlen(current_setting_value) == 0)
-                            {
-                                memcpy(temp_settings.password, current_setting_value, strlen(current_setting_value) + 1);
-                                found_password = true;
-                            }
+                            temp_settings.wifi_mode = wifi::Mode::kNone;
+                            found_wifi_mode = true;
+                        }
+                        else
+                        {
+                            ESP_LOGW(kLogPrefix, "config.txt: unknown mode '%s' (use ap, client or none)", mode);
+                        }
+                    }
+                    else if (strcmp(name, "ssid") == 0)
+                    {
+                        size_t ssid_len = strlen(value);
+                        if (ssid_len >= MIN_SSID_LENGTH && ssid_len <= MAX_SSID_LENGTH)
+                        {
+                            memcpy(temp_settings.ssid, value, ssid_len + 1);
+                            found_ssid = true;
+                        }
+                        else
+                        {
+                            ESP_LOGW(kLogPrefix, "config.txt: ssid must have %d-%d characters", MIN_SSID_LENGTH, MAX_SSID_LENGTH);
+                        }
+                    }
+                    else if (strcmp(name, "password") == 0)
+                    {
+                        // 0 length = open network
+                        size_t pass_len = strlen(value);
+                        if (pass_len == 0 || (pass_len >= MIN_PASS_LENGTH && pass_len <= MAX_PASS_LENGTH))
+                        {
+                            memcpy(temp_settings.password, value, pass_len + 1);
+                            found_password = true;
+                        }
+                        else
+                        {
+                            ESP_LOGW(kLogPrefix, "config.txt: password must be empty or have %d-%d characters", MIN_PASS_LENGTH, MAX_PASS_LENGTH);
                         }
                     }
                 }
+
+                fclose(config_file);
 
                 if ((found_wifi_mode && found_ssid && found_password) || (found_wifi_mode && temp_settings.wifi_mode == wifi::Mode::kNone))
                 {
@@ -126,10 +185,8 @@ namespace openmc
                     system::settings.contrast = 0xFF; // Contrast not implemented to config yet
                     return true;
                 }
-                else
-                {
-                    return false;
-                }
+
+                return false;
             }
         }
     }
