@@ -1,100 +1,88 @@
-# 🎮 OpenWirelessMC — PlayStation Wireless Memory Card Emulator
+# OpenWirelessMC
 
-<p align="center">
-  <b>Emulador de Memory Card sem fio para PlayStation 1 & PlayStation 2 com armazenamento MicroSD, interface Web retrô estilo PS1, banco de dados global de títulos e inicialização ultrarrápida no ESP32.</b>
-</p>
+Emulador de Memory Card sem fio para PlayStation 1 baseado no microcontrolador ESP32, com armazenamento em cartão MicroSD via barramento SPI, servidor web embarcado para gerenciamento remoto de saves e atualização de firmware over-the-air (Web OTA).
 
-<p align="center">
-  <b>Criador & Mantenedor:</b> Schickacka<br>
-  <i>Baseado na engenharia reversa pioneira do projeto <a href="https://github.com/johnbaumann/OpenMC">OpenMC</a> (John Baumann / rama / sickle / Nicolas Noble / danhans42).</i>
-</p>
+Desenvolvido por **Schickacka**, baseado na engenharia reversa do projeto [OpenMC](https://github.com/johnbaumann/OpenMC).
 
 ---
 
-## ⚡ Recursos do Projeto
+## 1. Visão Geral da Arquitetura
 
-- 🚀 **Boot Ultrarrápido do SIO (~1.75s):**  
-  O Core 1 baremetal inicializa o barramento SPI/SIO imediatamente na inicialização, ficando 100% pronto e operacional **mais de 3,5 segundos antes** da animação da BIOS da Sony terminar no PlayStation 1.
-- 📶 **Gestão 100% Sem Fio (Web Manager Retrô):**  
-  Gerencie todos os seus saves pelo celular ou PC conectando diretamente no IP do ESP32 ou via mDNS:
-  ```text
-  http://wirelessmc.local/
-  ```
-- 📚 **Banco de Dados Integrado com 23.464 Títulos:**  
-  Identificação automática em tempo real do nome oficial e região (`US 🇺🇸`, `JP 🇯🇵`, `EU 🇪🇺`, `ASIA 🌏`) de jogos de **PlayStation 1 (10.638 jogos)** e **PlayStation 2 (12.827 jogos)** a partir do GameID no nome do arquivo (ex: `SCUS-94183.mc` ➔ *Crash Bandicoot: WARPED*).
-- 💾 **Desmontagem Segura & Remontagem a Quente (Hot Remount):**  
-  Possibilidade de desmontar o MicroSD com segurança pela interface web, trocar de cartão físico e clicar em **"🔄 Montar Cartão SD"** para remontar na hora sem precisar desligar o videogame ou reiniciar o sistema!
-- 🛡️ **Modo de Resgate Automático (Rescue AP):**  
-  Se a rede Wi-Fi configurada não for encontrada (ex: ao levar o console para outro local), o sistema entra automaticamente em Ponto de Acesso temporário (`SSID: WirelessMC` / `Senha: SenhaDificil!`) em RAM sem apagar suas configurações salvas no `config.txt`.
-- 🕹️ **Gestão Completa de Saves:**  
-  - Baixar saves diretamente para o PC em formato padrão (`.mc`, `.mcd`, `.mcr`) compatível com emuladores (DuckStation, PCSX2, MemcardRex).
-  - Enviar saves existentes para o MicroSD.
-  - Criar novos Memory Cards virgens de 128 KB já formatados no padrão do console.
-  - Renomear arquivos que não estejam montados.
-  - Desmontar slot virtual (deixar ranhura vazia — perfeito para o easter egg do Psycho Mantis em *Metal Gear Solid*!).
-- ⚡ **Monitor de Hardware Dinâmico (OWMC Hardware):**  
-  Monitoramento em tempo real do silício (`ESP32-D0WD-V3`), frequência do clock (`160 MHz`), tamanho da Flash SPI externa (`4 MB`), Memória RAM DRAM Total e Livre (`(Min: ...)`), e tempo ativo (*uptime*).
+O OpenWirelessMC implementa a emulação completa do protocolo serial SIO do PlayStation 1 em tempo real, dividindo as operações de barramento e gerenciamento entre os dois núcleos do ESP32:
+
+* **Núcleo 1 (Baremetal / SIO dedicado):**
+  * Executa a máquina de estados do barramento SPI/SIO da Sony diretamente a partir da memória IRAM.
+  * Temporização de resposta ACK calibrada para 84 ciclos (~350 ns) no Core 1 a 240 MHz, garantindo compatibilidade total com o BIOS e jogos com rotinas de leitura estritas (como *Crash Bandicoot*, *Gran Turismo 1 & 2*, *Chrono Cross* e *Driver 2*).
+  * Imagem de 128 KB mantida em DRAM interna (`memory_card_ram`), permitindo leitura e gravação com latência zero durante as transações do barramento do console.
+
+* **Núcleo 0 (FreeRTOS / Armazenamento e Rede):**
+  * **Mecanismo de Escrita In-Place por Setor:** Gravação de alterações no MicroSD utilizando abertura em modo `r+b` com deslocamento de ponteiro (`fseek`). Apenas os setores efetivamente modificados (128 bytes por setor) são gravados na mídia física, reduzindo o desgaste do cartão SD e eliminando o risco de corrupção total da imagem em caso de desligamento abrupto do console.
+  * **Controle de Versão de Setores:** Rastreamento atômico de modificações por setor (`sector_version`) para evitar perda de dados quando o console realiza gravações sucessivas durante uma operação de gravação em andamento.
+  * **Exclusão Mútua (`StorageLock`):** Mutex recursivo que sincroniza acessos simultâneos entre o servidor HTTP, a rotina de detecção automática de GameID e a tarefa de persistência de disco.
+  * **Servidor Web Embarcado:** Interface de gerenciamento acessível via navegador em `http://wirelessmc.local/` (ou pelo endereço IP do dispositivo), com suporte a upload, download, renomeação, criação de cartões formatados e atualização de firmware (Web OTA).
 
 ---
 
-## 🛠️ Esquema de Ligação (Hardware)
+## 2. Compatibilidade de Hardware e Plataforma
 
-### 1. ESP32 (38 Pinos) ➔ Porta do Memory Card do PS1
+* **PlayStation 1 (PS1 / PSOne):** Compatibilidade total com todos os modelos e revisões de placa-mãe.
+* **PlayStation 2 (PS2):** Compatível **exclusivamente com jogos de PlayStation 1** executados no PS2 (o console reduz a frequência do barramento para o padrão do PS1 de ~250 kHz).
+  > **Nota técnica sobre jogos nativos de PS2:** O OpenWirelessMC **não** suporta jogos nativos de PlayStation 2. O barramento de Memory Card nativo do PS2 opera a frequências de até 4 MHz, requer cartões de alta capacidade (mínimo de 8 MB, inviáveis na DRAM do ESP32) e exige autenticação criptográfica proprietária por hardware (**MagicGate**).
+
+---
+
+## 3. Esquema de Ligações (Pinout)
+
+### 3.1. Conexão ESP32 com o Barramento SIO do PlayStation 1
 
 ```text
-              [ 9   7   6 ]   [ 5   4   3 ]   [ 2   1 ]  (Porta do Console)
-              -----------------------------------------
+               [ 9   7   6 ]   [ 5   4   3 ]   [ 2   1 ]  (Porta do Console)
+               -----------------------------------------
 ```
 
-| Pino PS1 | Sinal | Função | Conexão no ESP32 | Nível Lógico |
-| :---: | :---: | :--- | :---: | :---: |
-| **1** | **DATA** | Dados saindo do Memory Card para o console | **GPIO 32** | Open-Drain (Pull-up 3.5V no console) |
-| **2** | **CMND** | Comandos enviados do console para o Memory Card | **GPIO 34** | Entrada direta (3.5V) |
-| **4** | **GND** | Referência comum de terra | **GND** | 0V |
-| **6** | **ATT (SEL)** | Seleção do Memory Card (ativo em nível baixo) | **GPIO 35** | Entrada direta (3.5V) |
-| **7** | **CLK** | Clock de sincronismo serial (~250 kHz) | **GPIO 39** *(SENSOR_VN)* | Entrada direta (3.5V) |
-| **9** | **ACK** | Pulso de confirmação de recepção de byte | **GPIO 33** | Open-Drain (Pull-up 3.5V no console) |
+| Pino PS1 | Sinal | Descrição | Pino ESP32 | Modo / Observação |
+| :---: | :---: | :--- | :---: | :--- |
+| **1** | **DATA** | Linha serial de dados (Memory Card -> Console) | **GPIO 32** | Open-Drain (Pull-up interno no console) |
+| **2** | **CMND** | Comandos seriais (Console -> Memory Card) | **GPIO 34** | Entrada lógica direta (3.5V) |
+| **4** | **GND** | Referência de terra comum | **GND** | Nível 0V de referência |
+| **6** | **ATT (SEL)**| Seleção de periférico (ativo em nível baixo) | **GPIO 35** | Entrada lógica direta (3.5V) |
+| **7** | **CLK** | Clock de sincronismo serial (~250 kHz) | **GPIO 39** *(SENSOR_VN)* | Entrada lógica direta (3.5V) |
+| **9** | **ACK** | Pulso de confirmação de recepção de byte | **GPIO 33** | Drive push-pull com saída ativa |
 
-> ⚠️ **Atenção:** Os pinos 3 (7.6V) e 8 (N/C) da porta do Memory Card não devem ser ligados diretamente aos pinos lógicos de I/O do ESP32.
+> **Aviso de segurança:** Não conecte os pinos 3 (7.6V) e 8 (N/C) diretamente aos pinos de GPIO do ESP32.
 
 ---
 
-### 2. Módulo Leitor MicroSD (SPI) ➔ ESP32
+### 3.2. Conexão ESP32 com o Módulo MicroSD (SPI)
 
-| Pino Módulo MicroSD | Função SPI | Conexão no ESP32 |
+| Pino MicroSD | Função SPI | Pino ESP32 |
 | :---: | :---: | :---: |
 | **CS** | Chip Select | **GPIO 5** |
-| **SCK / CLK** | Clock SPI | **GPIO 18** |
-| **MOSI / DI** | Master Out, Slave In | **GPIO 23** |
-| **MISO / DO** | Master In, Slave Out | **GPIO 19** |
-| **VCC** | Alimentação | **3.3V** ou **5V (VIN)** |
-| **GND** | Terra | **GND** |
+| **SCK** | Serial Clock | **GPIO 18** |
+| **MOSI** | Master Out Slave In | **GPIO 23** |
+| **MISO** | Master In Slave Out | **GPIO 19** |
+| **VCC** | Tensão de alimentação | **3.3V** ou **5V (VIN)** |
+| **GND** | Referência de terra | **GND** |
 
 ---
 
-## 🔌 Alimentação e Instalação com Módulo Step-Down (Como Funciona na Prática)
+## 4. Alimentação e Regulagem de Tensão
 
-### ⚠️ O Problema da Linha Original de 3.5V (Pino 5 do Memory Card):
-No PlayStation 1, a linha de 3.5V da ranhura do Memory Card foi dimensionada pela Sony exclusivamente para pequenos chips EEPROM com consumo irrisório (~10mA a 20mA). Essa linha é protegida pelo micro-fusível SMD `PS605` (~0.7A) e pequenos indutores.  
-O **ESP32 com rádio Wi-Fi ativo** consome picos de **300mA a 450mA** durante transmissões de rede. Tentar puxar alimentação desse pino causa *brownouts* (reinicializações espontâneas do ESP32) ou a queima do fusível `PS605` da placa-mãe do console.
+### 4.1. Limitações da Linha de 3.5V Original (Pino 5)
+A linha de 3.5V da ranhura de Memory Card do PS1 foi dimensionada para alimentar chips EEPROM com consumo da ordem de 10 mA a 20 mA, sendo protegida por um microfusível de 0.7A (`PS605`). O microcontrolador ESP32 com o rádio Wi-Fi em transmissão atinge picos de consumo entre 300 mA e 450 mA. Alimentar o microcontrolador a partir deste pino provoca quedas de tensão (*brownout*) e risco de queima do fusível da placa-mãe.
 
----
+### 4.2. Instalação Recomendada: Regulador Step-Down DC-DC nos 7.6V
+A porta de controles do PlayStation fornece **7.6V a 8.0V** no **Pino 3**, linha dimensionada pela Sony para alimentar os motores de vibração de controles DualShock (suporta até 1A contínuo através do fusível de potência `PS603`/`PS604`).
 
-### 🌟 A Solução Ideal: Step-Down (Buck Converter) nos 7.6V da Porta do Controle (Pino 3)
-
-Esta é a instalação **oficial e recomendada** utilizada no projeto, funcionando com 100% de estabilidade:
-
-No conector dos controles do PS1, o **Pino 3** fornece **7.6V a 8.0V** protegidos pelo fusível de potência (`PS603` / `PS604`). Essa linha foi projetada pela Sony especificamente para alimentar os motores elétricos pesados de vibração dos controles DualShock, sendo capaz de fornecer até **1A contínuo com folga**!
-
-Utilizando um mini módulo regulador **Step-Down (Buck Converter DC-DC)**, como o **MP1584EN** (ou similar regulado para 5.0V), rebaixamos a tensão de forma limpa e supereficiente:
+Recomenda-se a utilização de um conversor Step-Down chaveado (Buck Converter DC-DC, ex.: MP1584EN regulado para 5.0V):
 
 ```text
        Porta do Controle PS1                                  ESP32 DevKit
    +---------------------------+                         +---------------------+
-   | Pino 3 (7.6V Vibração)    |------> [ IN+ ]          |                     |
-   | Pino 4 (GND Terra Comum)  |---+--> [ IN- ]          |                     |
+   | Pino 3 (7.6V Motores)     |------> [ IN+ ]          |                     |
+   | Pino 4 (GND Comum)        |---+--> [ IN- ]          |                     |
    +---------------------------+   |                     |                     |
-                                   |  MÓDULO STEP-DOWN   |                     |
+                                   |  REGULADOR STEP-DOWN|                     |
                                    |  (Ajustado em 5.0V) |                     |
                                    |                     |                     |
                                    |    [ OUT+ (5V) ]--->| VIN (ou 5V)         |
@@ -102,64 +90,59 @@ Utilizando um mini módulo regulador **Step-Down (Buck Converter DC-DC)**, como 
                                                          +---------------------+
 ```
 
-#### Passo a passo da montagem:
-1. Pegue um módulo mini Step-Down (ex: MP1584EN).
-2. Ligue a entrada dele temporariamente a uma fonte e ajuste o trimpot para a saída dar exatamente **5.0V**.
-3. Solde a entrada `IN+` do Step-Down no **Pino 3 da porta do controle (7.6V)** na traseira da plaquinha dos conectores (*daughterboard*).
-4. Solde o terra `IN-` e `OUT-` na malha de **GND** comum do PS1.
-5. Solde a saída `OUT+` (5.0V regulados) no pino **VIN (ou 5V)** do ESP32.
-6. **Resultado:** O ESP32 recebe 5V estáveis, filtrados, com corrente de sobra para o Wi-Fi e o leitor MicroSD, sem quedas de tensão e sem tocar na linha frágil de 3.5V!
+1. Regule o módulo Step-Down previamente para fornecer **5.0V** estáveis na saída.
+2. Conecte a entrada `IN+` do regulador ao **Pino 3** da porta de controle.
+3. Conecte o terra comum `IN-` / `OUT-` ao **GND** da placa do console.
+4. Conecte a saída `OUT+` (5.0V) ao pino **VIN** do módulo ESP32.
 
 ---
 
-### Outras Alternativas de Alimentação:
-* **Instalação com Fonte USB-C Interna (Mod 5V):** Se o seu console já possui mod de fonte interna USB-C (5V), puxe 5V e GND diretamente dos barramentos da fonte para o pino `VIN` do ESP32.
-* **Dongle Externo:** Você pode montar o conjunto dentro de uma carcaça de Memory Card que se conecta à porta do controle e do memory card ao mesmo tempo (puxando os 7.6V pelo conector do controle), ou alimentar o módulo externamente pela porta Micro-USB/USB-C com um carregador de celular comum.
+## 5. Estrutura do Cartão MicroSD
 
----
+1. Formate o cartão MicroSD no sistema de arquivos **FAT32**.
+2. Copie os arquivos da pasta [`sdcard_assets/`](sdcard_assets/) para a raiz do cartão:
+   * `titles.db`: Banco de dados de identificação automática de títulos por GameID.
+   * `default.mc`: Imagem inicial padrão de 128 KB (formatação padrão Sony).
+   * `config.txt`: Arquivo de parâmetros de inicialização de rede.
 
-## 💾 Preparação do Cartão MicroSD
-
-1. Formate o cartão MicroSD em **FAT32** (tamanho de alocação padrão).
-2. Copie os arquivos da pasta [`sdcard_assets/`](sdcard_assets/) para a raiz do seu MicroSD:
-   - `titles.db`: Banco de dados global com 23.464 títulos de PS1 e PS2.
-   - `default.mc`: Memory Card virgem inicial montado automaticamente.
-   - `config.txt`: Configurações de rede Wi-Fi.
-
-### Exemplo de `config.txt`:
+### 5.1. Estrutura do `config.txt`
 ```ini
-# OpenWirelessMC Configuration
-# mode=client para conectar ao roteador de casa, ou mode=ap para rede própria
+# OpenWirelessMC - Parametros de Rede
+# Modos validos: client, ap, none
 mode=client
-ssid=SuaRedeWiFi
-password=SuaSenhaWiFi
+ssid=NomeDaSuaRede
+password=SuaSenhaWPA2
 ```
 
+Se o modo configurado for `client` e o roteador estiver inacessível, o sistema ativa automaticamente um Ponto de Acesso temporário de recuperação (`SSID: WirelessMC` / `Senha: SenhaDificil!`) em memória RAM, sem sobrescrever o arquivo de configurações.
+
 ---
 
-## 🚀 Compilação e Gravação
+## 6. Compilação e Gravação
 
-O projeto está configurado para compilar nativamente via **PlatformIO** (VS Code / CLI):
+O projeto utiliza o ecossistema **PlatformIO** integrado ao framework ESP-IDF:
 
 ```bash
-# Compilar o firmware
+# Compilacao do firmware
 pio run
 
-# Gravar no ESP32 conectado na porta COM
+# Gravacao direta via porta serial
 pio run --target upload
 ```
 
-Os binários compilados prontos para gravação direta via `esptool` encontram-se na pasta [`releases/`](releases/).
-
-Para gravar diretamente o binário final compilado:
+### 6.1. Gravação Manual com esptool
+Para gravar o binário pré-compilado diretamente via cabo serial:
 ```bash
-python -m esptool --chip esp32 --port COM6 --baud 115200 write_flash 0x10000 releases/firmware_v1.0.bin
+python -m esptool --chip esp32 --port COMx --baud 115200 write_flash 0x10000 releases/firmware_v1.0.bin
 ```
+
+### 6.2. Atualização Remota (Web OTA)
+Com o dispositivo conectado à rede local, atualizações subsequentes podem ser realizadas diretamente através da interface web (`http://wirelessmc.local/`) na seção de atualização de firmware, sem necessidade de conexão física USB.
 
 ---
 
-## 📜 Licença e Créditos
+## 7. Licença e Reconhecimentos
 
-- **OpenWirelessMC:** Desenvolvido e mantido por **Schickacka**.
-- **Engenharia Reversa OpenMC:** Baseado no código original pioneiro do projeto [OpenMC](https://github.com/johnbaumann/OpenMC) por John Baumann e contribuidores.
-- **Banco de Dados de Jogos:** Catalogação extraída dos bancos de dados do DuckStation e PCSX2. Todos os direitos dos jogos pertencem às suas respectivas publicadoras.
+* **OpenWirelessMC:** Desenvolvido e mantido por **Schickacka**.
+* **Engenharia Reversa OpenMC:** Baseado no trabalho original de John Baumann, rama, sickle, Nicolas Noble e danhans42.
+* **Identificação de Jogos:** Catalogação derivada das bases comunitárias DuckStation e PCSX2. Todos os direitos sobre nomes e marcas registrados pertencem aos seus respectivos detentores.
