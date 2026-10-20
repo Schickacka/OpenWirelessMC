@@ -6,6 +6,20 @@ O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/p
 
 ---
 
+## [1.2.1] - 2026-10-20
+
+### Corrigido
+- **Restauração do Acionamento Push-Pull Ativo para MISO/DATA e ACK:**
+  - Reversão do modo Open-Drain puro que causava rampa de subida lenta (tempo RC) devido aos resistores de pull-up fracos (~10kΩ) da placa-mãe do PS1 na linha DATA.
+  - O ESP32 opera em Push-Pull ativo (3.3V com tempos de subida ultrarrápidos) quando selecionado (`ActiveMode`), garantindo leitura íntegra e sem corrupção de checksum em alta velocidade no *Crash Bandicoot* e jogos que utilizam o SDK Sony com amostragem rápida ("Checking Format" -> formato reconhecido com sucesso).
+  - Em modo inativo (`PassiveMode`), os pinos permanecem em alta impedância (*Hi-Z* via `GPIO_ENABLE1_W1TC_REG`), mantendo total isolamento contra contenção de barramento com controles e Slot 2.
+- **Restauração da Sequência de Leitura sem Aborto Prematuro de ACK:**
+  - Remoção de abortos intempestivos em `TickReadCommand` nos setores limítrofes, assegurando confirmação contínua de blocos segundo a especificação oficial de Memory Card PS1.
+- **Isolamento de Barramento no Tratador de Interrupção SPI:**
+  - Restauração de `core0_stall_end()` ao término completo do frame do barramento (incluindo desasserção de SEL), prevenindo interferência de tarefas de segundo plano durante transações críticas de I/O.
+
+---
+
 ## [1.2.0] - 2026-10-20
 
 ### Adicionado

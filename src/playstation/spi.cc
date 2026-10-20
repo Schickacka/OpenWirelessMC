@@ -48,26 +48,13 @@ namespace openmc
         {
             gpio_config_t io_conf;
 
-            // Configure input pins: CLK, SEL, MOSI
-            int inpins[] = {kCLK_Pin, kSEL_Pin, kMOSI_Pin};
-            for (int i = 0; i < 3; i++)
-            {
-                io_conf.intr_type = GPIO_INTR_DISABLE;
-                io_conf.pin_bit_mask = 1ULL << inpins[i];
-                io_conf.mode = GPIO_MODE_INPUT;
-                io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-                io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
-                gpio_config(&io_conf);
-            }
+            int allpins[] = {kACK_Pin, kCLK_Pin, kSEL_Pin, kMOSI_Pin, kMISO_Pin};
 
-            // Configure output pins: ACK and MISO in Open-Drain mode.
-            // PS1 bus is open-collector shared with controllers and slot 2.
-            int outpins[] = {kACK_Pin, kMISO_Pin};
-            for (int i = 0; i < 2; i++)
+            for (int i = 0; i < 5; i++)
             {
                 io_conf.intr_type = GPIO_INTR_DISABLE;
-                io_conf.pin_bit_mask = 1ULL << outpins[i];
-                io_conf.mode = GPIO_MODE_INPUT_OUTPUT_OD;
+                io_conf.pin_bit_mask = 1ULL << allpins[i];
+                io_conf.mode = GPIO_MODE_INPUT;
                 io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
                 io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
                 gpio_config(&io_conf);
@@ -136,9 +123,6 @@ namespace openmc
             // Quietly listen on SPI
             PassiveMode();
 
-            // Resume core0 immediately so WiFi/SD tasks are not starved during the remainder of controller frames
-            core0_stall_end();
-
             // Re-Enable SPI if previously set to Disable(ignore mode)
             Enable();
 
@@ -159,6 +143,8 @@ namespace openmc
             REG_WRITE(GPIO_STATUS1_W1TC_REG, REG_READ(GPIO_ACPU_INT1_REG));
             (void)REG_READ(GPIO_STATUS1_REG);
 
+            // Resume core0
+            core0_stall_end();
             return 0;
         }
 

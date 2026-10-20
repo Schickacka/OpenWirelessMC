@@ -311,30 +311,13 @@ namespace openmc
 
         case 6: //00h
           //Confirm MSB
-          if (sector >= 1024)
-          {
-            data_out = 0xFF;
-          }
-          else
-          {
-            data_out = sector >> 8;
-          }
+          data_out = sector >> 8;
           break;
 
         case 7: //00h
           //Confirm LSB
-          if (sector >= 1024)
-          {
-            data_out = 0xFF;
-            skip_ack = true;
-            spi::PassiveMode();
-            current_command = PS1_SIOCommands::Ignore;
-          }
-          else
-          {
-            data_out = (sector & 0xFF);
-            checksum_out = highByte(sector) ^ lowByte(sector);
-          }
+          data_out = (sector & 0xFF);
+          checksum_out = highByte(sector) ^ lowByte(sector);
           break;
 
           // Cases 8 through 135 overloaded to default operator below
@@ -392,7 +375,6 @@ namespace openmc
           // Offset "Send" bytes noted from nocash's psx specs.
 
         case 0: // 57h 'W' Write command
-          flag &= ~Flags::kDirectoryUnread;
           data_out = Responses::kID1;
           break;
 
