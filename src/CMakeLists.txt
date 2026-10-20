@@ -6,5 +6,6 @@ idf_component_register(
 
 # Bare metal stuff
 idf_build_set_property(COMPILE_DEFINITIONS "-DXT_INTEXC_HOOKS" APPEND)
+idf_build_set_property(COMPILE_OPTIONS "-fno-jump-tables" APPEND)
 target_link_libraries(${COMPONENT_TARGET} "-u ld_include_my_startup_file")
 target_link_libraries(${COMPONENT_TARGET} "-u ld_include_core0_stall_highint_hdl")

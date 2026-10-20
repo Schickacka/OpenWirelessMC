@@ -1,5 +1,52 @@
 #include "oled/ssd1306.h"
 
+#ifndef ENABLE_OLED
+#define ENABLE_OLED 0
+#endif
+
+#if !ENABLE_OLED
+namespace openmc
+{
+	namespace oled
+	{
+		void ClearBuffer() {}
+		void ClearScreen() {}
+		void DrawBuffer() {}
+		void DrawBox(int32_t x, int32_t y, uint8_t w, uint8_t h, bool color_set) {}
+		void DrawChar(uint8_t character, int32_t x_pos, int32_t y_pos, bool clear_bg, bool colors_inverted) {}
+		void DrawMessage(const char *message, int32_t x_pos, int32_t y_pos, bool auto_wrap, bool clear_bg, bool colors_inverted) {}
+		int32_t GetMessageRenderedWidth(const char *message) { return 0; }
+		void Init(void) {}
+		void ResetScreen() {}
+
+		esp_err_t SetContrast(uint8_t contrast) { return ESP_OK; }
+		esp_err_t DisplayFromRAM() { return ESP_OK; }
+		esp_err_t EntireDisplayOn() { return ESP_OK; }
+		esp_err_t NormalDisplayMode() { return ESP_OK; }
+		esp_err_t InverseDisplayMode() { return ESP_OK; }
+		esp_err_t DisplayOff() { return ESP_OK; }
+		esp_err_t DisplayOn() { return ESP_OK; }
+		esp_err_t ScrollRight(Page start_page, Interval interval, Page end_page) { return ESP_OK; }
+		esp_err_t ScrollLeft(Page start_page, Interval interval, Page end_page) { return ESP_OK; }
+		esp_err_t ScrollDownAndRight(Page start_page, Interval interval, Page end_page, uint8_t offset) { return ESP_OK; }
+		esp_err_t ScrollDownAndLeft(Page start_page, Interval interval, Page end_page, uint8_t offset) { return ESP_OK; }
+		esp_err_t DeactivateScroll() { return ESP_OK; }
+		esp_err_t ActivateScroll() { return ESP_OK; }
+		esp_err_t SetVerticalScrollArea(uint8_t num_top_fix_rows, uint8_t num_scroll_rows) { return ESP_OK; }
+		esp_err_t SetChargePump(uint8_t setting) { return ESP_OK; }
+		esp_err_t SetMemoryAddressingMode(MemoryAddressing mode) { return ESP_OK; }
+		esp_err_t SetColumnAddress(uint8_t column_start, Page column_end) { return ESP_OK; }
+		esp_err_t SetPageAddress(uint8_t page_start, Page page_end) { return ESP_OK; }
+		esp_err_t SetSegmentReset() { return ESP_OK; }
+		esp_err_t SetSegmentRemap() { return ESP_OK; }
+		esp_err_t SetMultiPlexRatio(uint8_t ratio) { return ESP_OK; }
+		esp_err_t SetCOMReset() { return ESP_OK; }
+		esp_err_t SetCOMRemap() { return ESP_OK; }
+	}
+}
+#else
+#include "oled/ssd1306.h"
+
 #include "oled/6x6font.h"
 #include "logging.h"
 #include "pins.h"
@@ -530,3 +577,5 @@ namespace openmc
 		}
 	} // oled
 } // openmc
+
+#endif

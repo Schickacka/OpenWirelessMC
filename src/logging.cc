@@ -7,7 +7,7 @@
 
 const char *kLogPrefix = "openwirelessmc";
 
-#define LOG_BUFFER_SIZE (16 * 1024)
+#define LOG_BUFFER_SIZE (8 * 1024)
 static char s_log_buffer[LOG_BUFFER_SIZE];
 static size_t s_log_head = 0;
 static size_t s_log_count = 0;

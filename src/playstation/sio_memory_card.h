@@ -68,12 +68,12 @@ namespace openmc
             // Per-sector change counter. Only the SIO core (Commit) writes it; the storage task compares it
             // against the version it last saved to the SD card, so it can write only the sectors that changed
             // and never loses a write that happens while a flush is in progress.
-            extern uint8_t sector_version[1024];
+            extern uint16_t sector_version[1024];
 
             extern uint8_t flag;
             extern uint16_t sector;
 
-            extern uint8_t game_id[64];
+            extern uint8_t game_id[256];
             extern uint8_t game_id_length;
             extern volatile bool game_id_updated;
 
@@ -96,7 +96,7 @@ namespace openmc
                 uint8_t chk_out;
             };
 
-            extern McTraceEntry trace_ring[8];
+            extern McTraceEntry trace_ring[32];
             extern volatile uint32_t trace_write_idx;
             extern volatile uint32_t trace_read_idx;
             extern volatile uint32_t pad_poll_count;
@@ -114,6 +114,7 @@ namespace openmc
             uint8_t TickPingCommand(uint8_t &DataIn);
             uint8_t TickGetIDCommand(uint8_t &DataIn);
             uint8_t TickResetCommand(uint8_t &DataIn);
+            uint8_t TickChannelCommand(uint8_t &DataIn);
         } // namespace memory_card
 
     } //namespace sio

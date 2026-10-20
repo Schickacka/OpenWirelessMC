@@ -23,7 +23,7 @@ namespace openmc
       static char debug_string[] = "MC event %2X\n";
 #endif
       uint8_t DRAM_ATTR memory_card_ram[131072] = {};
-      uint8_t DRAM_ATTR sector_version[1024] = {};
+      uint16_t DRAM_ATTR sector_version[1024] = {};
 
       uint8_t DRAM_ATTR flag = Flags::kDirectoryUnread;
 
@@ -44,11 +44,11 @@ namespace openmc
 
       static uint8_t DRAM_ATTR data_buffer[128];
 
-      uint8_t DRAM_ATTR game_id[64];
+      uint8_t DRAM_ATTR game_id[256];
       uint8_t DRAM_ATTR game_id_length = 0;
       volatile bool DRAM_ATTR game_id_updated = false;
 
-      McTraceEntry DRAM_ATTR trace_ring[8] = {};
+      McTraceEntry DRAM_ATTR trace_ring[32] = {};
       volatile uint32_t DRAM_ATTR trace_write_idx = 0;
       volatile uint32_t DRAM_ATTR trace_read_idx = 0;
       volatile uint32_t DRAM_ATTR pad_poll_count = 0;
@@ -120,7 +120,7 @@ namespace openmc
           }
           if (should_record)
           {
-            uint32_t idx = trace_write_idx & 7;
+            uint32_t idx = trace_write_idx & 31;
             trace_ring[idx].event_tick = (uint32_t)sio::event_ticks;
             trace_ring[idx].addr = trace_addr;
             trace_ring[idx].cmd = trace_cmd;
@@ -187,6 +187,10 @@ namespace openmc
             case Commands::kGameID:
             case Commands::kPing:
             case Commands::kReset:
+            case Commands::kPreviousChannel:
+            case Commands::kNextChannel:
+            case Commands::kPreviousCard:
+            case Commands::kNextCard:
               current_command = data_in;
               // Re-evaluate command
               // command_routed = false;
@@ -238,6 +242,14 @@ namespace openmc
 
           case Commands::kReset:
             data_out = TickResetCommand(data_in);
+            command_routed = true;
+            break;
+
+          case Commands::kPreviousChannel:
+          case Commands::kNextChannel:
+          case Commands::kPreviousCard:
+          case Commands::kNextCard:
+            data_out = TickChannelCommand(data_in);
             command_routed = true;
             break;
 
@@ -299,13 +311,30 @@ namespace openmc
 
         case 6: //00h
           //Confirm MSB
-          data_out = sector >> 8;
+          if (sector >= 1024)
+          {
+            data_out = 0xFF;
+          }
+          else
+          {
+            data_out = sector >> 8;
+          }
           break;
 
         case 7: //00h
           //Confirm LSB
-          data_out = (sector & 0xFF);
-          checksum_out = highByte(sector) ^ lowByte(sector);
+          if (sector >= 1024)
+          {
+            data_out = 0xFF;
+            skip_ack = true;
+            spi::PassiveMode();
+            current_command = PS1_SIOCommands::Ignore;
+          }
+          else
+          {
+            data_out = (sector & 0xFF);
+            checksum_out = highByte(sector) ^ lowByte(sector);
+          }
           break;
 
           // Cases 8 through 135 overloaded to default operator below
@@ -363,6 +392,7 @@ namespace openmc
           // Offset "Send" bytes noted from nocash's psx specs.
 
         case 0: // 57h 'W' Write command
+          flag &= ~Flags::kDirectoryUnread;
           data_out = Responses::kID1;
           break;
 
@@ -482,7 +512,7 @@ namespace openmc
               __sync_synchronize();
               game_id_updated = true;
             }
-            data_out = Responses::kReserved;
+            data_out = data_in; // echo previous byte
           }
           break;
         }
@@ -500,15 +530,14 @@ namespace openmc
         {
         case 0:              // 20h Ping Command
         case 1:              // 00h Reserved
-        case 2:              // 00h Reserved
           data_out = kDummy; // 0x00 / Reserved
           break;
 
-        case 3: // Card Present
+        case 2: // Card Present
           data_out = Responses::kCardPresent; // 0x27
           break;
 
-        case 4: // Termination signal
+        case 3: // Termination signal
           data_out = Responses::kTerminationSignal; // 0xFF
           trace_status = data_out;
           break;
@@ -565,6 +594,38 @@ namespace openmc
           break;
 
         case 8: // 00h
+        default:
+          skip_ack = true;
+          data_out = Responses::kIdleHighZ;
+          spi::PassiveMode();
+          break;
+        }
+
+        command_ticks++;
+
+        return data_out;
+      }
+
+      uint8_t IRAM_ATTR TickChannelCommand(uint8_t &data_in)
+      {
+        uint8_t data_out = 0xFF;
+
+        switch (command_ticks)
+        {
+        case 0:
+        case 1:
+          data_out = Responses::kDummy; // 0x00
+          break;
+
+        case 2:
+          data_out = Responses::kSuccess; // 0x20
+          break;
+
+        case 3:
+          data_out = Responses::kTerminationSignal; // 0xFF
+          trace_status = data_out;
+          break;
+
         default:
           skip_ack = true;
           data_out = Responses::kIdleHighZ;

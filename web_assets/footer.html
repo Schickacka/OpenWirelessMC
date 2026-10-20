@@ -94,7 +94,7 @@
         <div style="display:flex; flex-direction:column; gap:8px; font-size:13px;">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
             <span style="color:var(--text-muted); flex-shrink:0;">Firmware:</span>
-            <span style="font-weight:700; color:var(--ps-green); text-align:right;">v1.0</span>
+            <span style="font-weight:700; color:var(--ps-green); text-align:right;">v1.2</span>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
             <span style="color:var(--text-muted); flex-shrink:0;">Chipset:</span>
@@ -363,76 +363,8 @@
 </div>
 
 <script>
-// Banco de Dados Expandido de Game IDs (PS1 e PS2)
-var GAME_DB = {
-  "SCUS-94183": "PaRappa The Rapper",
-  "SCUS-94244": "Gran Turismo",
-  "SCUS-94426": "Gran Turismo 2",
-  "SCUS-94900": "Ape Escape",
-  "SCUS-94491": "Crash Bash",
-  "SCUS-94488": "Spyro: Year of the Dragon",
-  "SCUS-94425": "Spyro 2: Ripto's Rage!",
-  "SCUS-94228": "Spyro the Dragon",
-  "SCUS-94497": "Syphon Filter 2",
-  "SCUS-94240": "Twisted Metal III",
-  "SCUS-94563": "Twisted Metal 4",
-  "SCUS-94163": "Final Fantasy VII (Disc 1)",
-  "SCUS-94164": "Final Fantasy VII (Disc 2)",
-  "SCUS-94165": "Final Fantasy VII (Disc 3)",
-  "SLUS-00005": "Crash Bandicoot",
-  "SLUS-00007": "Twisted Metal",
-  "SLUS-00473": "Crash Bandicoot 2: Cortex Strikes Back",
-  "SLUS-00665": "Crash Bandicoot: Warped",
-  "SLUS-00744": "Crash Team Racing (CTR)",
-  "SLUS-00539": "Resident Evil 2 (Leon)",
-  "SLUS-00756": "Resident Evil 2 (Claire)",
-  "SLUS-00561": "Metal Gear Solid (Disc 1)",
-  "SLUS-00774": "Metal Gear Solid (Disc 2)",
-  "SLUS-00594": "Silent Hill",
-  "SLUS-00662": "Castlevania: Symphony of the Night",
-  "SLUS-00680": "Resident Evil 3: Nemesis",
-  "SLUS-00707": "Dino Crisis",
-  "SLUS-01279": "Dino Crisis 2",
-  "SLUS-01334": "Mega Man X5",
-  "SLUS-01361": "Barbie Explorer",
-  "SLUS-01363": "Final Fantasy Chronicles (Chrono Trigger)",
-  "SLUS-01395": "Mega Man X6",
-  "SLUS-01411": "Yu-Gi-Oh! Forbidden Memories",
-  "SLUS-01419": "Tony Hawk's Pro Skater 3",
-  "SLUS-01429": "Delta Force: Urban Warfare",
-  "SLUS-00892": "Tony Hawk's Pro Skater 2",
-  "SLUS-00923": "Chrono Cross",
-  "SLUS-00972": "Tekken 3",
-  "SLUS-00402": "Tekken 2",
-  "SLUS-00067": "Tomb Raider",
-  "SLUS-00533": "Tomb Raider II",
-  "SLUS-00106": "Resident Evil: Director's Cut",
-  "SLUS-00748": "MediEvil",
-  "SLUS-00896": "Syphon Filter",
-  "SLUS-00405": "Driver",
-  "SLUS-00776": "Legacy of Kain: Soul Reaver",
-  "SLUS-00879": "Xenogears",
-  "SLUS-00845": "Final Fantasy VIII",
-  "SLUS-01251": "Final Fantasy IX",
-  "SLUS-00078": "Wipeout",
-  "SLUS-00213": "Rayman",
-  "SLUS-00454": "Oddworld: Abe's Oddysee",
-  "SLES-00001": "Ridge Racer",
-  "SLES-00024": "Wipeout",
-  "SLES-00075": "Destruction Derby",
-  "SLES-00972": "Tekken 3",
-  "SLES-01507": "Metal Gear Solid",
-  "SLES-00975": "Gran Turismo",
-  "SLES-02380": "Gran Turismo 2",
-  "SLES-02096": "Silent Hill",
-  "SLES-02534": "Resident Evil 3: Nemesis",
-  "SLPM-86023": "Final Fantasy VII (International)",
-  "SLPS-00025": "Ridge Racer",
-  "SLPS-00215": "Dragon Quest VII",
-  "SLPS-00917": "Tobal No. 1",
-  "SLPS-01762": "Tales of Destiny",
-  "SLPS-00001": "Mahjong Station"
-};
+// Banco de Dados Dinâmico de Game IDs (carregado via titles.db do MicroSD)
+var GAME_DB = {};
 
 // Dicionário de Textos do Sistema (Português do Brasil)
 var I18N = {
@@ -472,11 +404,19 @@ function resolveGameInfo(filename) {
   var t = I18N;
   if (!filename) return { title: t.generic_save, region: "" };
 
+  // Identificação do Cartão de Boot Padrão
+  var cleanName = filename.toLowerCase();
+  if (cleanName === "default.mc" || cleanName.indexOf("default.mc") >= 0) {
+    return { title: "Boot Card", region: "", code: "BOOT" };
+  }
+
   // Match prefixes like SLUS-01066, SLUS_010.66, SLUS01066, SCUS-94183, etc.
   var match = filename.match(/([A-Za-z]{4})[-_]?(\d{3,5})/);
   if (match) {
     var code = match[1].toUpperCase() + "-" + match[2];
     var region = getRegionFromPrefix(match[1]);
+
+
     var title = GAME_DB[code];
     if (title) {
       return { title: title, region: region, code: code };
@@ -758,6 +698,9 @@ function fetchStatus() {
   fetch('/api/status')
     .then(r => r.json())
     .then(data => {
+      if (data.titles_version !== undefined) {
+        syncGameDatabase(data.titles_version);
+      }
       // SD
       var badge = document.getElementById('sd-status-badge');
       var btnEjectSd = document.getElementById('btn-eject-sd');
@@ -1123,39 +1066,70 @@ function uploadOTA() {
   xhr.send(file);
 }
 
-// Carregar Banco de Dados Global de Títulos (titles.db) do SD
-function loadGameDatabase() {
+function parseTitlesDb(text) {
+  var lines = text.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line || line.charCodeAt(0) === 35) continue;
+    var eq = line.indexOf('=');
+    if (eq > 0) {
+      var id = line.substring(0, eq).trim().toUpperCase();
+      var title = line.substring(eq + 1).trim();
+      GAME_DB[id] = title;
+    }
+  }
+}
+
+// Carregar títulos do cache local imediatamente para exibição instantânea (< 5ms)
+function initGameDatabaseFromCache() {
+  try {
+    var cached = localStorage.getItem('owmc_titles_cache');
+    if (cached && cached.length > 1000) {
+      parseTitlesDb(cached);
+      populateGameTitles();
+      sortTable(0, true);
+    }
+  } catch(e) {}
+}
+
+// Sincronizar titles.db com o SD Card baseado na versão/tamanho do arquivo
+function syncGameDatabase(serverVersion) {
+  var cachedVersion = null;
+  try {
+    cachedVersion = localStorage.getItem('owmc_titles_version');
+  } catch(e) {}
+
+  // Se a versão bate exatamente com o cache e os títulos já estão carregados, nada precisa ser baixado!
+  if (serverVersion && String(serverVersion) === String(cachedVersion) && Object.keys(GAME_DB).length > 100) {
+    return;
+  }
+
   fetch('/titles.db')
     .then(function(r) {
       if (r.ok) return r.text();
-      throw new Error('titles.db não encontrado');
+      throw new Error('titles.db não encontrado no SD');
     })
     .then(function(text) {
-      var lines = text.split('\n');
-      for (var i = 0; i < lines.length; i++) {
-        var line = lines[i].trim();
-        if (!line || line.charCodeAt(0) === 35) continue;
-        var eq = line.indexOf('=');
-        if (eq > 0) {
-          var id = line.substring(0, eq).trim().toUpperCase();
-          var title = line.substring(eq + 1).trim();
-          GAME_DB[id] = title;
+      try {
+        localStorage.setItem('owmc_titles_cache', text);
+        if (serverVersion) {
+          localStorage.setItem('owmc_titles_version', String(serverVersion));
         }
-      }
+      } catch(e) {}
+      parseTitlesDb(text);
       populateGameTitles();
-      sortTable(0, true); // Ordenar alfabeticamente por Título (A-Z) por padrão
+      sortTable(0, true);
     })
     .catch(function(err) {
-      // Fallback para os títulos já pré-carregados no dicionário
       populateGameTitles();
-      sortTable(0, true); // Ordenar alfabeticamente por Título (A-Z) por padrão
+      sortTable(0, true);
     });
 }
 
 window.addEventListener('DOMContentLoaded', function() {
   applyTranslations();
-  fetchStatus();
-  loadGameDatabase();
+  initGameDatabaseFromCache(); // Exibição instantânea dos nomes dos jogos se já existirem no cache
+  fetchStatus();              // Busca status e sincroniza se o titles.db do SD mudou
 });
 </script>
 </body>

@@ -97,9 +97,9 @@ namespace openmc
                 wifi_config_t wifi_config;
                 memset(&wifi_config, 0, sizeof(wifi_config));
 
-                strncpy((char *)wifi_config.ap.ssid, (const char *)system::settings.ssid, sizeof(wifi_config.ap.ssid));
+                strlcpy((char *)wifi_config.ap.ssid, (const char *)system::settings.ssid, sizeof(wifi_config.ap.ssid));
                 wifi_config.ap.ssid_len = strlen((char *)wifi_config.ap.ssid);
-                strncpy((char *)wifi_config.ap.password, (const char *)system::settings.password, sizeof(wifi_config.ap.password));
+                strlcpy((char *)wifi_config.ap.password, (const char *)system::settings.password, sizeof(wifi_config.ap.password));
                 wifi_config.ap.channel = 1;
                 wifi_config.ap.ssid_hidden = 0;
                 wifi_config.ap.max_connection = 4;

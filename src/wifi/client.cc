@@ -128,11 +128,11 @@ namespace openmc
                 wifi_config_t wifi_config;
                 memset(&wifi_config, 0, sizeof(wifi_config));
 
-                strncpy((char *)wifi_config.sta.ssid, (const char *)system::settings.ssid, sizeof(wifi_config.sta.ssid));
-                strncpy((char *)wifi_config.sta.password, (const char *)system::settings.password, sizeof(wifi_config.sta.password));
+                strlcpy((char *)wifi_config.sta.ssid, (const char *)system::settings.ssid, sizeof(wifi_config.sta.ssid));
+                strlcpy((char *)wifi_config.sta.password, (const char *)system::settings.password, sizeof(wifi_config.sta.password));
                 wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
                 wifi_config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
-                wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+                wifi_config.sta.threshold.authmode = (strlen((const char *)system::settings.password) == 0) ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
                 wifi_config.sta.pmf_cfg.capable = true;
                 wifi_config.sta.pmf_cfg.required = false;
 

@@ -43,7 +43,7 @@ namespace openmc
     bool ready = false;
 
     // Last sector_version[] value that is known to be on the SD card (storage side only).
-    static uint8_t *saved_version = NULL;
+    static uint16_t saved_version[CARD_SECTOR_COUNT];
 
     // The web server, the write task and the GameID switch all touch the card file and the RAM image.
     static SemaphoreHandle_t storage_mutex = NULL;
@@ -69,7 +69,6 @@ namespace openmc
 
     static void MarkAllSectorsSaved()
     {
-      if (!saved_version) return;
       for (int i = 0; i < CARD_SECTOR_COUNT; i++)
       {
         saved_version[i] = sio::memory_card::sector_version[i];
@@ -152,7 +151,7 @@ namespace openmc
 
         while (sio::memory_card::trace_read_idx != sio::memory_card::trace_write_idx)
         {
-          uint32_t idx = sio::memory_card::trace_read_idx & 7;
+          uint32_t idx = sio::memory_card::trace_read_idx & 31;
           sio::memory_card::McTraceEntry e = sio::memory_card::trace_ring[idx];
           sio::memory_card::trace_read_idx++;
           if (e.cmd != 0x20)
@@ -260,12 +259,9 @@ namespace openmc
           ESP_LOGE(kLogPrefix, "Error opening file %s (errno %d)\n", loaded_file_path, errno);
           return -1;
         }
-        if (saved_version)
+        for (int i = 0; i < CARD_SECTOR_COUNT; i++)
         {
-          for (int i = 0; i < CARD_SECTOR_COUNT; i++)
-          {
-            saved_version[i] = (uint8_t)(sio::memory_card::sector_version[i] - 1);
-          }
+          saved_version[i] = (uint16_t)(sio::memory_card::sector_version[i] - 1);
         }
       }
 
@@ -275,8 +271,8 @@ namespace openmc
 
       for (int s = 0; s < CARD_SECTOR_COUNT; s++)
       {
-        uint8_t version = sio::memory_card::sector_version[s];
-        if (saved_version && version == saved_version[s])
+        uint16_t version = sio::memory_card::sector_version[s];
+        if (version == saved_version[s])
         {
           continue;
         }
@@ -300,10 +296,7 @@ namespace openmc
           break;
         }
 
-        if (saved_version)
-        {
-          saved_version[s] = version;
-        }
+        saved_version[s] = version;
         sectors_written++;
       }
 
@@ -467,15 +460,6 @@ namespace openmc
         storage_mutex = xSemaphoreCreateRecursiveMutex();
       }
 
-      if (saved_version == NULL)
-      {
-        saved_version = (uint8_t *)malloc(CARD_SECTOR_COUNT);
-        if (saved_version)
-        {
-          memset(saved_version, 0, CARD_SECTOR_COUNT);
-        }
-      }
-
       loaded_file_path[0] = '\0';
 
       if (sdcard::Init() == ESP_OK)
@@ -497,6 +481,47 @@ namespace openmc
         ESP_LOGE(kLogPrefix, "SD card not available: memory card emulation disabled until it is mounted.\n");
         sio::SetMemoryCardEmulation(false);
       }
+    }
+
+    static bool ResolveParentGameID(const char *child_id, char *out_parent, size_t out_len)
+    {
+      if (!child_id || child_id[0] == '\0' || !out_parent || out_len == 0)
+      {
+        return false;
+      }
+
+      // Check /sdcard/multidisc.txt if present
+      char multidisc_path[CONFIG_FATFS_MAX_LFN + 1];
+      snprintf(multidisc_path, sizeof(multidisc_path), "%s/multidisc.txt", base_path);
+
+      FILE *f = fopen(multidisc_path, "r");
+      if (f)
+      {
+        char line[64];
+        const size_t child_len = strlen(child_id);
+        while (fgets(line, sizeof(line), f))
+        {
+          if (line[0] == '#' || line[0] == '\r' || line[0] == '\n')
+          {
+            continue;
+          }
+          if (strncasecmp(line, child_id, child_len) == 0 && line[child_len] == '=')
+          {
+            const char *val = line + child_len + 1;
+            size_t val_len = strcspn(val, "\r\n ");
+            if (val_len > 0 && val_len < out_len)
+            {
+              memcpy(out_parent, val, val_len);
+              out_parent[val_len] = '\0';
+              fclose(f);
+              return true;
+            }
+          }
+        }
+        fclose(f);
+      }
+
+      return false;
     }
 
     bool SwitchToGameID(const char *game_id_str)
@@ -564,24 +589,9 @@ namespace openmc
         p++;
       }
 
-      // Fallback: If no standard PSX pattern found, sanitize characters directly
       if (clean_id[0] == '\0')
       {
-        size_t len = 0;
-        for (size_t i = 0; game_id_str[i] != '\0' && len < sizeof(clean_id) - 1; i++)
-        {
-          char c = game_id_str[i];
-          if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')
-          {
-            clean_id[len++] = toupper((unsigned char)c);
-          }
-        }
-        clean_id[len] = '\0';
-      }
-
-      if (strlen(clean_id) == 0)
-      {
-        ESP_LOGW(kLogPrefix, "SwitchToGameID: Invalid/empty sanitized GameID.\n");
+        ESP_LOGW(kLogPrefix, "SwitchToGameID: Non-standard or unparseable GameID '%s', ignoring card switch request.\n", game_id_str);
         return false;
       }
 
@@ -606,6 +616,7 @@ namespace openmc
       char found_path[CONFIG_FATFS_MAX_LFN + 1];
       bool file_exists = false;
 
+      // 1. Check if a dedicated save file for this specific disc already exists on the SD
       for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++)
       {
         snprintf(found_path, sizeof(found_path), "%s/%s%s", base_path, clean_id, suffixes[i]);
@@ -616,6 +627,34 @@ namespace openmc
           file_exists = true;
           ESP_LOGI(kLogPrefix, "SwitchToGameID: Found existing save file '%s'!\n", found_path);
           break;
+        }
+      }
+
+      // 2. If no dedicated save file exists, check multi-disc parent mapping (e.g. SCUS-94164 -> SCUS-94163)
+      if (!file_exists)
+      {
+        char parent_id[64];
+        if (ResolveParentGameID(clean_id, parent_id, sizeof(parent_id)))
+        {
+          ESP_LOGI(kLogPrefix, "SwitchToGameID: Multi-disc child ID '%s' resolving to parent '%s'...\n", clean_id, parent_id);
+          for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++)
+          {
+            snprintf(found_path, sizeof(found_path), "%s/%s%s", base_path, parent_id, suffixes[i]);
+            FILE *f = fopen(found_path, "rb");
+            if (f)
+            {
+              fclose(f);
+              file_exists = true;
+              ESP_LOGI(kLogPrefix, "SwitchToGameID: Found existing parent save file '%s'!\n", found_path);
+              strlcpy(clean_id, parent_id, sizeof(clean_id));
+              break;
+            }
+          }
+          if (!file_exists)
+          {
+            // If neither exists, use parent ID so all continuation discs share the newly created card
+            strlcpy(clean_id, parent_id, sizeof(clean_id));
+          }
         }
       }
 

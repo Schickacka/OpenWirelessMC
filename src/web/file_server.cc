@@ -436,8 +436,58 @@ namespace openmc
 
             /* Copies the full path into destination buffer and returns
  * pointer to path (skipping the preceding base path) */
-            /* True if any path segment is exactly ".." (directory traversal) */
-            static bool has_dotdot_segment(const char *p)
+            static bool is_protected_config_file(const char *path)
+            {
+                if (!path || path[0] == '\0')
+                {
+                    return false;
+                }
+                const char *last_slash = strrchr(path, '/');
+                const char *basename = last_slash ? (last_slash + 1) : path;
+                return (strcasecmp(basename, "config.txt") == 0);
+            }
+
+            static void json_escape_string(const char *in, char *out, size_t out_size)
+            {
+                size_t j = 0;
+                if (!in)
+                {
+                    if (out_size > 0) out[0] = '\0';
+                    return;
+                }
+                for (size_t i = 0; in[i] != '\0' && j + 2 < out_size; i++)
+                {
+                    unsigned char c = (unsigned char)in[i];
+                    if (c == '"' || c == '\\')
+                    {
+                        out[j++] = '\\';
+                        out[j++] = c;
+                    }
+                    else if (c == '\n')
+                    {
+                        out[j++] = '\\';
+                        out[j++] = 'n';
+                    }
+                    else if (c == '\r')
+                    {
+                        out[j++] = '\\';
+                        out[j++] = 'r';
+                    }
+                    else if (c == '\t')
+                    {
+                        out[j++] = '\\';
+                        out[j++] = 't';
+                    }
+                    else if (c >= 32)
+                    {
+                        out[j++] = c;
+                    }
+                }
+                out[j] = '\0';
+            }
+
+            /* True if any path segment is exactly "." or ".." (directory traversal / normalization bypass) */
+            static bool has_dot_segment(const char *p)
             {
                 while (*p)
                 {
@@ -450,13 +500,19 @@ namespace openmc
                     {
                         p++;
                     }
-                    if ((size_t)(p - segment) == 2 && segment[0] == '.' && segment[1] == '.')
+                    size_t seg_len = (size_t)(p - segment);
+                    if (seg_len == 1 && segment[0] == '.')
+                    {
+                        return true;
+                    }
+                    if (seg_len == 2 && segment[0] == '.' && segment[1] == '.')
                     {
                         return true;
                     }
                 }
                 return false;
             }
+
 
             static const char *get_path_from_uri(char *dest, const char *base_path, const char *uri, size_t destsize)
             {
@@ -478,13 +534,35 @@ namespace openmc
                     return NULL;
                 }
 
-                if (has_dotdot_segment(decoded_uri) || strchr(decoded_uri, '\\') != NULL)
+                if (has_dot_segment(decoded_uri) || strchr(decoded_uri, '\\') != NULL)
                 {
                     return NULL;
                 }
 
+                // Normalize consecutive slashes (e.g. "//config.txt" -> "/config.txt")
+                char normalized[513];
+                size_t norm_idx = 0;
+                bool prev_slash = false;
+                for (size_t i = 0; decoded_uri[i] != '\0' && norm_idx < sizeof(normalized) - 1; i++)
+                {
+                    if (decoded_uri[i] == '/')
+                    {
+                        if (!prev_slash)
+                        {
+                            normalized[norm_idx++] = '/';
+                            prev_slash = true;
+                        }
+                    }
+                    else
+                    {
+                        normalized[norm_idx++] = decoded_uri[i];
+                        prev_slash = false;
+                    }
+                }
+                normalized[norm_idx] = '\0';
+
                 const size_t base_pathlen = strlen(base_path);
-                const size_t pathlen = strlen(decoded_uri);
+                const size_t pathlen = strlen(normalized);
 
                 if (base_pathlen + pathlen + 1 > destsize)
                 {
@@ -493,7 +571,7 @@ namespace openmc
                 }
 
                 memcpy(dest, base_path, base_pathlen);
-                memcpy(dest + base_pathlen, decoded_uri, pathlen + 1);
+                memcpy(dest + base_pathlen, normalized, pathlen + 1);
 
                 /* Return pointer to path, skipping the base */
                 return dest + base_pathlen;
@@ -524,10 +602,16 @@ namespace openmc
                     return http_resp_dir_html(req, filepath);
                 }
 
-                /* config.txt holds the Wi-Fi password: never serve it */
-                if (strcasecmp(filename, "/config.txt") == 0)
+                /* config.txt holds the Wi-Fi password: never serve it regardless of path format */
+                if (is_protected_config_file(filepath))
                 {
                     httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Forbidden");
+                    return ESP_FAIL;
+                }
+
+                if (is_protected_config_file(filepath))
+                {
+                    httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Forbidden: config.txt cannot be deleted");
                     return ESP_FAIL;
                 }
 
@@ -624,6 +708,12 @@ namespace openmc
                 {
                     ESP_LOGE(kLogPrefix, "Invalid filename : %s", filename);
                     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Invalid filename");
+                    return ESP_FAIL;
+                }
+
+                if (is_protected_config_file(filepath))
+                {
+                    httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Forbidden: config.txt cannot be overwritten via file upload");
                     return ESP_FAIL;
                 }
 
@@ -910,7 +1000,6 @@ namespace openmc
                 if (storage::CreateBlankFormattedCard(target_path))
                 {
                     httpd_resp_set_type(req, "application/json");
-                    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
                     return httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
                 }
                 else
@@ -926,7 +1015,6 @@ namespace openmc
             {
                 bool ok = storage::UnloadCard();
                 httpd_resp_set_type(req, "application/json");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
                 if (!ok)
                 {
                     httpd_resp_set_status(req, "500 Internal Server Error");
@@ -940,7 +1028,6 @@ namespace openmc
             {
                 bool ok = storage::SafelyUnmountSD();
                 httpd_resp_set_type(req, "application/json");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
                 if (!ok)
                 {
                     httpd_resp_set_status(req, "500 Internal Server Error");
@@ -954,7 +1041,6 @@ namespace openmc
             {
                 bool ok = storage::RemountSD();
                 httpd_resp_set_type(req, "application/json");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
                 if (ok)
                 {
                     return httpd_resp_sendstr(req, "{\"status\":\"ok\",\"message\":\"Cartao MicroSD montado com sucesso!\"}");
@@ -975,7 +1061,6 @@ namespace openmc
                 if (new_state && storage::loaded_file_path[0] == '\0')
                 {
                     httpd_resp_set_type(req, "application/json");
-                    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
                     httpd_resp_set_status(req, "409 Conflict");
                     return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Nenhum Memory Card montado.\"}");
                 }
@@ -989,7 +1074,6 @@ namespace openmc
                          new_state ? "true" : "false");
 
                 httpd_resp_set_type(req, "application/json");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
                 return httpd_resp_sendstr(req, resp);
             }
 
@@ -1053,7 +1137,7 @@ namespace openmc
                 // Only files inside the SD card, no directory traversal
                 char sd_prefix[24];
                 snprintf(sd_prefix, sizeof(sd_prefix), "%s/", storage::base_path);
-                if (strncmp(old_path, sd_prefix, strlen(sd_prefix)) != 0 || has_dotdot_segment(old_path) ||
+                if (strncmp(old_path, sd_prefix, strlen(sd_prefix)) != 0 || has_dot_segment(old_path) ||
                     strcmp(new_name, ".") == 0 || strcmp(new_name, "..") == 0)
                 {
                     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
@@ -1084,7 +1168,6 @@ namespace openmc
                 if (rename(old_path, new_path) == 0)
                 {
                     httpd_resp_set_type(req, "application/json");
-                    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
                     return httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
                 }
                 else
@@ -1098,22 +1181,31 @@ namespace openmc
             /* API Handler: GET /api/status */
             static esp_err_t api_status_handler(httpd_req_t *req)
             {
-                uint64_t total_bytes = 0;
-                uint64_t free_bytes = 0;
-                FATFS *fs = NULL;
-                DWORD fre_clust = 0;
-                if (f_getfree("0:", &fre_clust, &fs) == FR_OK && fs != NULL)
+                static uint32_t last_df_time = 0;
+                static uint64_t cached_total_bytes = 0;
+                static uint64_t cached_free_bytes = 0;
+                uint32_t now_sec = (uint32_t)(esp_timer_get_time() / 1000000ULL);
+
+                if (storage::ready && (now_sec - last_df_time > 30 || last_df_time == 0))
                 {
-                    uint64_t tot_sect = (uint64_t)(fs->n_fatent - 2) * fs->csize;
-                    uint64_t fre_sect = (uint64_t)fre_clust * fs->csize;
+                    FATFS *fs = NULL;
+                    DWORD fre_clust = 0;
+                    if (f_getfree("0:", &fre_clust, &fs) == FR_OK && fs != NULL)
+                    {
+                        uint64_t tot_sect = (uint64_t)(fs->n_fatent - 2) * fs->csize;
+                        uint64_t fre_sect = (uint64_t)fre_clust * fs->csize;
 #if FF_MAX_SS != FF_MIN_SS
-                    total_bytes = tot_sect * fs->ssize;
-                    free_bytes = fre_sect * fs->ssize;
+                        cached_total_bytes = tot_sect * fs->ssize;
+                        cached_free_bytes = fre_sect * fs->ssize;
 #else
-                    total_bytes = tot_sect * FF_SS;
-                    free_bytes = fre_sect * FF_SS;
+                        cached_total_bytes = tot_sect * FF_SS;
+                        cached_free_bytes = fre_sect * FF_SS;
 #endif
+                    }
+                    last_df_time = now_sec;
                 }
+                uint64_t total_bytes = storage::ready ? cached_total_bytes : 0;
+                uint64_t free_bytes = storage::ready ? cached_free_bytes : 0;
 
                 int8_t rssi = 0;
                 wifi_ap_record_t ap_info;
@@ -1122,33 +1214,31 @@ namespace openmc
                     rssi = ap_info.rssi;
                 }
 
-                int ps1_count = 0;
-                int ps2_count = 0;
-                DIR *d = opendir("/sdcard");
-                if (d)
+                static uint32_t last_count_time = 0;
+                static int cached_ps1_count = 0;
+                static int cached_ps2_count = 0;
+                if (storage::ready && (now_sec - last_count_time > 5 || last_count_time == 0))
                 {
-                    struct dirent *de;
-                    while ((de = readdir(d)) != NULL)
+                    cached_ps1_count = 0;
+                    cached_ps2_count = 0;
+                    DIR *d = opendir("/sdcard");
+                    if (d)
                     {
-                        const char *dot = strrchr(de->d_name, '.');
-                        if (dot && (strcasecmp(dot, ".mc") == 0 || strcasecmp(dot, ".mcd") == 0 || strcasecmp(dot, ".mcr") == 0))
+                        struct dirent *de;
+                        while ((de = readdir(d)) != NULL)
                         {
-                            char fpath[FILE_PATH_MAX + 32];
-                            strlcpy(fpath, "/sdcard/", sizeof(fpath));
-                            strlcat(fpath, de->d_name, sizeof(fpath));
-                            struct stat st;
-                            if (stat(fpath, &st) == 0 && st.st_size > (128 * 1024))
+                            const char *dot = strrchr(de->d_name, '.');
+                            if (dot && (strcasecmp(dot, ".mc") == 0 || strcasecmp(dot, ".mcd") == 0 || strcasecmp(dot, ".mcr") == 0))
                             {
-                                ps2_count++;
-                            }
-                            else
-                            {
-                                ps1_count++;
+                                cached_ps1_count++;
                             }
                         }
+                        closedir(d);
                     }
-                    closedir(d);
+                    last_count_time = now_sec;
                 }
+                int ps1_count = cached_ps1_count;
+                int ps2_count = cached_ps2_count;
 
                 char ip_str[32] = "192.168.4.1";
                 esp_netif_ip_info_t ip_info;
@@ -1176,26 +1266,45 @@ namespace openmc
                     snprintf(chip_desc, sizeof(chip_desc), "ESP32-D0WD-V3 (Rev %d)", chip_info.revision);
                 }
 
-                char json_resp[1024]; // loaded_file can be up to 255 characters
-                snprintf(json_resp, sizeof(json_resp),
+                char esc_ssid[68];
+                char esc_loaded[CONFIG_FATFS_MAX_LFN * 2 + 1];
+                json_escape_string((const char *)system::settings.ssid, esc_ssid, sizeof(esc_ssid));
+                json_escape_string(storage::loaded_file_path, esc_loaded, sizeof(esc_loaded));
+
+                uint32_t titles_version = 0;
+                struct stat t_stat;
+                if (storage::ready && stat("/sdcard/titles.db", &t_stat) == 0)
+                {
+                    titles_version = (uint32_t)((uint32_t)t_stat.st_size ^ (uint32_t)t_stat.st_mtime);
+                }
+
+                char *json_resp = (char *)malloc(1536);
+                if (!json_resp)
+                {
+                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
+                    return ESP_FAIL;
+                }
+                snprintf(json_resp, 1536,
                     "{\"sd_total\":%llu,\"sd_free\":%llu,\"sd_mounted\":%s,\"heap_free\":%u,\"heap_min\":%u,\"ram_total\":%u,"
                     "\"wifi_mode\":%d,\"ssid\":\"%s\",\"rssi\":%d,\"ip\":\"%s\","
                     "\"loaded_file\":\"%s\",\"uptime\":%lld,\"mc_count\":%d,\"ps1_count\":%d,\"ps2_count\":%d,"
-                    "\"chip\":\"%s\",\"cores\":%d,\"cpu_freq\":%u,\"flash_size\":%u,\"sio_emulation\":%s}",
+                    "\"chip\":\"%s\",\"cores\":%d,\"cpu_freq\":%u,\"flash_size\":%u,\"sio_emulation\":%s,\"titles_version\":%u}",
                     (unsigned long long)total_bytes, (unsigned long long)free_bytes,
                     storage::ready ? "true" : "false",
                     (unsigned int)esp_get_free_heap_size(), (unsigned int)esp_get_minimum_free_heap_size(),
                     (unsigned int)ram_total,
-                    (int)system::settings.wifi_mode, system::settings.ssid, (int)rssi, ip_str,
-                    storage::loaded_file_path,
+                    (int)system::settings.wifi_mode, esc_ssid, (int)rssi, ip_str,
+                    esc_loaded,
                     (long long)(esp_timer_get_time() / 1000000ULL),
                     (ps1_count + ps2_count), ps1_count, ps2_count,
                     chip_desc, (int)chip_info.cores, (unsigned int)freq_cfg.freq_mhz, (unsigned int)(flash_size / (1024 * 1024)),
-                    sio::memory_card_enabled ? "true" : "false");
+                    sio::memory_card_enabled ? "true" : "false",
+                    (unsigned int)titles_version);
 
                 httpd_resp_set_type(req, "application/json");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-                return httpd_resp_send(req, json_resp, strlen(json_resp));
+                esp_err_t res = httpd_resp_send(req, json_resp, strlen(json_resp));
+                free(json_resp);
+                return res;
             }
 
             /* API Handler: POST /api/config */
@@ -1281,27 +1390,29 @@ namespace openmc
 
                 if (!storage::ready)
                 {
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD card not mounted");
-                    return ESP_FAIL;
+                    httpd_resp_set_type(req, "application/json");
+                    httpd_resp_set_status(req, "500 Internal Server Error");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Cartao MicroSD nao inicializado\"}");
                 }
 
                 FILE *f = fopen("/sdcard/config.txt", "w");
                 if (!f)
                 {
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to write config.txt");
-                    return ESP_FAIL;
+                    httpd_resp_set_type(req, "application/json");
+                    httpd_resp_set_status(req, "500 Internal Server Error");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Falha ao abrir /sdcard/config.txt para escrita\"}");
                 }
                 int written = fprintf(f, "# OpenWirelessMC Configuration\nmode=%s\nssid=%s\npassword=%s\n", mode_val, ssid_val, pass_val);
                 if (fclose(f) != 0 || written < 0)
                 {
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to write config.txt");
-                    return ESP_FAIL;
+                    httpd_resp_set_type(req, "application/json");
+                    httpd_resp_set_status(req, "500 Internal Server Error");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Falha ao gravar /sdcard/config.txt\"}");
                 }
 
                 storage::config::LoadConfig();
 
                 httpd_resp_set_type(req, "application/json");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
                 return httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
             }
 
@@ -1315,7 +1426,6 @@ namespace openmc
             static esp_err_t api_reboot_handler(httpd_req_t *req)
             {
                 httpd_resp_set_type(req, "application/json");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
                 httpd_resp_sendstr(req, "{\"status\":\"rebooting\"}");
 
                 xTaskCreate(reboot_task, "reboot_task", 2048, NULL, 5, NULL);
@@ -1325,14 +1435,14 @@ namespace openmc
             /* API Handler: GET /api/logs */
             static esp_err_t api_logs_handler(httpd_req_t *req)
             {
-                char *log_buf = (char *)malloc(16384);
+                char *log_buf = (char *)malloc(8192);
                 if (!log_buf)
                 {
                     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory for logs");
                     return ESP_FAIL;
                 }
 
-                size_t len = logging_get_logs(log_buf, 16384);
+                size_t len = logging_get_logs(log_buf, 8192);
                 httpd_resp_set_type(req, "text/plain; charset=utf-8");
                 httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
                 httpd_resp_send(req, log_buf, len);
@@ -1418,6 +1528,17 @@ namespace openmc
                     return ESP_FAIL;
                 }
 
+                esp_app_desc_t new_app_info;
+                err = esp_ota_get_partition_description(update_partition, &new_app_info);
+                if (err != ESP_OK)
+                {
+                    ESP_LOGE(kLogPrefix, "OTA: Invalid app image description: 0x%x", err);
+                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid firmware image header");
+                    return ESP_FAIL;
+                }
+                ESP_LOGI(kLogPrefix, "OTA: New firmware verified -> Project: '%s', Version: '%s'",
+                         new_app_info.project_name, new_app_info.version);
+
                 err = esp_ota_set_boot_partition(update_partition);
                 if (err != ESP_OK)
                 {
@@ -1428,7 +1549,6 @@ namespace openmc
 
                 ESP_LOGI(kLogPrefix, "OTA Update SUCCEEDED! Restarting in 2 seconds...");
                 httpd_resp_set_type(req, "application/json");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
                 httpd_resp_sendstr(req, "{\"status\":\"ok\",\"message\":\"Atualizado com sucesso! Reiniciando...\"}");
 
                 xTaskCreate(reboot_task, "reboot_task", 2048, NULL, 5, NULL);
@@ -1458,6 +1578,7 @@ namespace openmc
 
                 httpd_handle_t server = NULL;
                 httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+                config.stack_size = 8192;
                 config.max_uri_handlers = 20;
 
                 // Use the URI wildcard matching function in order to
