@@ -12,7 +12,7 @@ O OpenWirelessMC implementa a emulação completa do protocolo serial SIO do Pla
 
 * **Núcleo 1 (Baremetal / SIO dedicado):**
   * Executa a máquina de estados do barramento SPI/SIO da Sony diretamente a partir da memória IRAM, sem sobrecarga de sistema operacional.
-  * Temporização de resposta ACK calibrada para 84 ciclos (~350 ns) no Core 1 a 240 MHz, garantindo compatibilidade total com o BIOS do console e títulos com rotinas estritas de detecção de barramento (*Crash Bandicoot*, *Gran Turismo 1 & 2*, *Chrono Cross*, *Driver 2*).
+  * Temporização de resposta ACK calibrada empiricamente para 84 iterações de espera no Core 1. Cada iteração inclui leitura de registrador e desvio, portanto o tempo em nanossegundos depende do código gerado; a referência teórica de 84 ciclos a **160 MHz** (`CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ=160`, valor real do build de 1.3) é de aproximadamente **525 ns**, e não os 350 ns que uma versão anterior do README atribuía a 240 MHz. O valor é calibrado contra o console, não derivado de uma frequência teórica, e não deve ser alterado sem revalidar o *Crash Bandicoot* e os demais títulos sensíveis a timing.
   * Topologia de barramento com **Push-Pull Ativo e Alta Impedância Dinâmica** nas linhas `DATA` (GPIO 32) e `ACK` (GPIO 33): operam em acionamento ativo de 3.3V durante a seleção de periférico (`ActiveMode`) para transições de borda ultra-rápidas sem atraso de subida RC, e entram em alta impedância absoluta (*Hi-Z*) em modo inativo (`PassiveMode`), garantindo isolamento total contra contenção de barramento com controles, multitaps e periféricos conectados ao Slot 2.
   * Imagem ativa de 128 KB mantida em DRAM interna (`memory_card_ram`), permitindo leitura e gravação com latência zero durante as transações do barramento do console.
   * Inicialização ultrarrápida do SIO (~1.75 s), ficando operacional aproximadamente 3.5 segundos antes do término da animação de boot da BIOS no PS1.
@@ -21,7 +21,7 @@ O OpenWirelessMC implementa a emulação completa do protocolo serial SIO do Pla
   * **Mecanismo de Escrita In-Place por Setor:** Gravação de alterações no MicroSD em modo `r+b` com deslocamento de ponteiro (`fseek`). Apenas os setores efetivamente modificados (128 bytes por setor) são gravados na mídia física, reduzindo expressivamente o desgaste das células flash do cartão SD e eliminando o risco de corrupção total da imagem em caso de desligamento abrupto do console.
   * **Controle Atômico de Versão de Setores:** Matriz estática de rastreamento (`sector_version[1024]`) alocada em memória BSS, prevenindo perda de dados quando o console realiza gravações sucessivas e evitando fragmentação do heap.
   * **Exclusão Mútua (`StorageLock`):** Mutex recursivo que sincroniza com segurança os acessos simultâneos entre o servidor HTTP, a rotina de detecção automática de GameID e a tarefa de persistência de disco.
-  * **Suporte Inteligente a Jogos Multi-Disco (Multi-Disc Parent Mapping):** Mapeamento automático de 475 títulos com múltiplos discos através do arquivo `/sdcard/multidisc.txt`. Ao trocar para discos subsequentes (ex.: Disco 2 de *Final Fantasy*, *Metal Gear Solid*, *Resident Evil 2*, *Policenauts*), o sistema redireciona o arquivo montado para o cartão principal do Disco 1, preservando o progresso contínuo sem gerar cartões vazios indesejados.
+  * **Suporte Inteligente a Jogos Multi-Disco (Multi-Disc Parent Mapping):** Mapeamento automático de 471 títulos com múltiplos discos através do arquivo `/sdcard/multidisc.txt` (contagem real do arquivo distribuído em `sdcard_assets/`; versões anteriores do README diziam 475). Ao trocar para discos subsequentes (ex.: Disco 2 de *Final Fantasy*, *Metal Gear Solid*, *Resident Evil 2*, *Policenauts*), o sistema redireciona o arquivo montado para o cartão principal do Disco 1, preservando o progresso contínuo sem gerar cartões vazios indesejados.
   * **Catálogo Global com Cache Versionado Dinâmico:** Identificação de 23.465 títulos catalogados no MicroSD em `titles.db`. O navegador cliente realiza o armazenamento local via `localStorage`, renderizando a biblioteca em menos de 5 ms sem tráfego de rede. O endpoint `/api/status` valida a versão do banco através do hash `size ^ mtime` do arquivo no SD (`titles_version`), atualizando o cache automaticamente em caso de modificação na mídia. Zero jogos comerciais hardcoded nos arquivos de firmware ou HTML.
   * **Cartão Inicial Padronizado:** O arquivo base `default.mc` é identificado e exibido oficialmente como **"Boot Card"** na interface web.
   * **Otimização Crítica de Memória DRAM:** Dimensionamento dinâmico dos buffers de transmissão/recepção Wi-Fi e pilha TCP/IP LWIP, preservando ~45 KB de DRAM interna livre para prevenir qualquer risco de esgotamento de memória (*OOM panic*) durante acessos simultâneos de rede e disco.
@@ -40,7 +40,7 @@ Para desenvolvedores, engenheiros de firmware e analistas de código, esta seç�
 | **Persistência de Saves no MicroSD** | Reescrita destrutiva do arquivo inteiro (`fopen("wb")`) | **Gravação In-Place Cirúrgica por Setor (`r+b` / `fseek`)** | Sobrescrever 128 KB truncava o arquivo para 0 bytes, corrompendo saves em desligamentos acidentais e levando ~400 ms. A escrita in-place grava apenas 128 bytes em ~5 ms sem risco de perda. |
 | **Versionamento de Setores Modificados** | Ausente ou buffer dinâmico no heap | **Matriz Estática `sector_version[1024]` em BSS** | Rastreamento atômico setor a setor. Se o console salvar repetidamente enquanto o SD grava em segundo plano, as versões não são perdidas e não há fragmentação de memória heap. |
 | **Troca Automática de Saves por Jogo (GameID)** | Inexistente (troca exclusivamente manual via web) | **Protocolo MemCard PRO / PicoStation (`0x21`)** | Detecta transmissões de ID de jogos emitidas por xStation, Unirom e Tonyhax, comutando automaticamente para `<GameID>-1.mc` com barreira multicore (`__sync_synchronize`). |
-| **Jogos Multi-Disco** | Criação de cartões vazios independentes por disco | **Resolução Inteligente via `multidisc.txt`** | Mapeamento de 475 títulos (FF7, MGS, RE2, etc.) redirecionando discos 2, 3 e 4 para o save pai do Disco 1, mantendo o progresso unificado. |
+| **Jogos Multi-Disco** | Criação de cartões vazios independentes por disco | **Resolução Inteligente via `multidisc.txt`** | Mapeamento de 471 títulos (FF7, MGS, RE2, etc.) redirecionando discos 2, 3 e 4 para o save pai do Disco 1, mantendo o progresso unificado. |
 | **Criação de Cartões Novos Formatados** | Preenchimento com bytes nulos ou `0xFF` | **Template Autêntico Sony de Fábrica (sd2psX)** | Bloco 0 gerado a partir do padrão autêntico Sony com blocos 1–15 em `0xFF`. O PS1 e a BIOS reconhecem o cartão imediatamente como formatado sem exigir formatação manual. |
 | **Catálogo de Jogos da Interface Web** | Títulos hardcoded em C/HTML ou ausentes | **Banco `titles.db` + Cache em `localStorage`** | 23.465 títulos catalogados no SD com sincronização delta via hash atômico (`titles_version`), renderização em <5 ms e zero títulos comerciais fixos no firmware. |
 | **Consumo de Memória DRAM do ESP32** | Padrão do SDK (~10-15 KB livres, risco de OOM) | **Ajuste Fino de Buffers Wi-Fi/LWIP (~45 KB livres)** | Buffers estáticos/dinâmicos de rede reduzidos mantendo vazão máxima, eliminando travamentos (*OOM panic*) durante salvamentos pesados simultâneos ao acesso web. |
@@ -81,7 +81,7 @@ Para desenvolvedores, engenheiros de firmware e analistas de código, esta seç�
 
 ### 2.6. Mapeamento Inteligente de Jogos Multi-Disco (`multidisc.txt`)
 * **Continuidade Transparente:** Em jogos clássicos divididos em múltiplos CDs (como *Final Fantasy VIII*, *Metal Gear Solid*, *Resident Evil 2*, *Chrono Cross*), cada disco possui um GameID diferente. Sem mapeamento, o jogador ao inserir o Disco 2 encontrava um cartão vazio e não conseguia carregar o save do Disco 1.
-* **A Solução Adotada:** Um parser rápido no Core 0 lê o arquivo `/sdcard/multidisc.txt` (contendo 475 associações). Ao detectar o ID do Disco 2 (ex.: `SCUS-94244`), o sistema resolve o ID pai do Disco 1 (`SCUS-94163`) e mantém o mesmo cartão montado, permitindo troca de discos transparente e salvamento contínuo.
+* **A Solução Adotada:** Um parser rápido no Core 0 lê o arquivo `/sdcard/multidisc.txt` (contendo 471 associações ativas). Ao detectar o ID do Disco 2 (ex.: `SCUS-94164`), o sistema resolve o ID pai do Disco 1 (`SCUS-94163`) e mantém o mesmo cartão montado, permitindo troca de discos transparente e salvamento contínuo.
 
 ---
 
@@ -187,7 +187,7 @@ Recomenda-se a utilização de um conversor Step-Down chaveado (Buck Converter D
 1. Formate o cartão MicroSD no sistema de arquivos **FAT32**.
 2. Copie os arquivos da pasta [`sdcard_assets/`](sdcard_assets/) para a raiz do cartão:
    * `titles.db`: Banco de dados global de identificação de títulos por GameID (23.465 entradas).
-   * `multidisc.txt`: Tabela de mapeamento para unificação de jogos multi-disco (475 entradas).
+   * `multidisc.txt`: Tabela de mapeamento para unificação de jogos multi-disco (471 entradas ativas).
    * `default.mc`: Boot Card formatado no padrão original Sony (128 KB).
    * `config.txt`: Arquivo de parâmetros de inicialização de rede Wi-Fi.
 
@@ -217,26 +217,26 @@ pio run
 pio run --target upload
 ```
 
-### 7.2. Pacote de Lançamento e Gravação Automatizada (v1.3)
-Os binários pré-compilados e scripts de gravação para Windows encontram-se na pasta [`releases/v1.3_package/`](releases/v1.3_package/):
+### 7.2. Pacote de Lançamento e Gravação Automatizada (v1.4)
+Os binários pré-compilados e scripts de gravação para Windows encontram-se na pasta [`releases/v1.4_package/`](releases/v1.4_package/):
 
 1. Conecte o ESP32 ao computador via cabo USB.
 2. Execute o script automatizado:
    ```cmd
-   cd releases\v1.3_package
+   cd releases\v1.4_package
    flash_windows.bat
    ```
-3. Informe a porta COM correspondente ao dispositivo. O script executará a gravação completa (`bootloader.bin`, `partitions.bin`, `ota_data_initial.bin` e `firmware_v1.3.bin`).
+3. Informe a porta COM correspondente ao dispositivo. O script executará a gravação completa (`bootloader.bin`, `partitions.bin`, `ota_data_initial.bin` e `firmware_v1.4.bin`).
 
 ### 7.3. Gravação Manual com esptool
 Caso prefira gravar manualmente via terminal:
 ```bash
-python -m esptool --chip esp32 --port COMx --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 40m --flash_size 4MB 0x1000 bootloader.bin 0x8000 partitions.bin 0xd000 ota_data_initial.bin 0x10000 firmware_v1.3.bin
+python -m esptool --chip esp32 --port COMx --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 40m --flash_size 4MB 0x1000 bootloader.bin 0x8000 partitions.bin 0xd000 ota_data_initial.bin 0x10000 firmware_v1.4.bin
 ```
 
 ### 7.4. Atualização Remota (Web OTA)
 Com o dispositivo conectado à rede local, atualizações podem ser realizadas diretamente através da interface web (`http://wirelessmc.local/`) na seção **Atualização de Firmware (Web OTA)**:
-1. Selecione o arquivo `firmware_v1.3.bin` gerado ou obtido em [`releases/`](releases/).
+1. Selecione o arquivo `firmware_v1.4.bin` gerado ou obtido em [`releases/`](releases/).
 2. Clique em **Atualizar Firmware**.
 3. O servidor validará a integridade do cabeçalho da imagem antes de comutar a partição de boot e reiniciará o microcontrolador automaticamente.
 
@@ -246,7 +246,8 @@ Com o dispositivo conectado à rede local, atualizações podem ser realizadas d
 
 Para consultar o histórico detalhado de alterações de cada versão, consulte o arquivo [CHANGELOG.md](CHANGELOG.md).
 
-* **v1.3.0 (Atual):** Restauração do acionamento Push-Pull ativo forte nos pinos MISO (DATA) e ACK com alta impedância dinâmica (*Hi-Z*) em modo passivo (solução definitiva para *Crash Bandicoot* e jogos com leitura rápida de diretório), remoção de cortes de ACK intempestivos em limites de setor, posicionamento correto de `core0_stall_end` pós-desasserção de SEL, documentação comparativa completa contra o OpenMC original e atualização da Web UI.
+* **v1.4.0 (Atual):** Realinhamento do layout GameID `0x21` (tick 2 comprimento, tick 3+ caracteres), streaming contínuo no FastRead `0x42` até desasserção de SEL, recuperação automática e validação estrita de integridade para `default.mc` (com regeneração do asset Sony com checksum `0x0E`), liberação de barramento SPI em falhas de montagem e unmount, restauração do flag `0x08` ("diretório não lido") após escrita no setor 0, buffer SSID expandido para 32 caracteres completos, stubs de teste host atualizados e sincronização de XTAL para 40 MHz.
+* **v1.3.0:** Restauração do acionamento Push-Pull ativo forte nos pinos MISO (DATA) e ACK com alta impedância dinâmica (*Hi-Z*) em modo passivo (solução definitiva para *Crash Bandicoot* e jogos com leitura rápida de diretório), remoção de cortes de ACK intempestivos em limites de setor, posicionamento correto de `core0_stall_end` pós-desasserção de SEL, documentação comparativa completa contra o OpenMC original e atualização da Web UI.
 * **v1.2.0:** Cache versionado dinâmico para `titles.db`, zero títulos hardcoded no HTML, identificação do `default.mc` como `Boot Card`, otimização crítica de DRAM (~45 KB livres), verificação de integridade no Web OTA e suporte estendido a jogos multi-disco (*Policenauts*, *Resident Evil 3*).
 * **v1.1.0:** Suporte a multi-disco via `multidisc.txt`, desmontagem/remontagem a quente e estabilização de buffers.
 * **v1.0.0:** Lançamento inicial estável com escrita in-place por setor, SIO baremetal no Core 1 calibrado a 84 ciclos, servidor web e partição dual-OTA.

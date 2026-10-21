@@ -35,11 +35,16 @@ namespace openmc
                 // To-do: Consider disabling some commands/implementations as non-applicable
                 kPing = 0x20,            // Ping Command
                 kGameID = 0x21,          // GAMEID
-                kPreviousChannel = 0x22, // mount the previous channel of the Virtual Memory Card
-                kNextChannel = 0x23,     // mount the next channel of the Virtual Memory Card
-                kPreviousCard = 0x24,    // mount the previous folder (card)
-                kNextCard = 0x25,        // mount the next folder (card)
-                kGetCardName = 0x26,     // pass the name of the currently mounted card
+                // 0x22..0x26 are MMCE channel/card-management commands.
+                // They are intentionally NOT accepted by this firmware: answering 0x20
+                // ("success") without switching anything made the console believe the
+                // card had changed. See CORRECOES-v1.4.md (C6). They now fall through
+                // to the unsupported-command path (idle/high-Z), which is honest.
+                kPreviousChannel = 0x22, // reserved (not implemented)
+                kNextChannel = 0x23,     // reserved (not implemented)
+                kPreviousCard = 0x24,    // reserved (not implemented)
+                kNextCard = 0x25,        // reserved (not implemented)
+                kGetCardName = 0x26,     // reserved (not implemented)
                 kReset = 0x27            // MMCE Reset
             };
 
@@ -114,7 +119,6 @@ namespace openmc
             uint8_t TickPingCommand(uint8_t &DataIn);
             uint8_t TickGetIDCommand(uint8_t &DataIn);
             uint8_t TickResetCommand(uint8_t &DataIn);
-            uint8_t TickChannelCommand(uint8_t &DataIn);
         } // namespace memory_card
 
     } //namespace sio

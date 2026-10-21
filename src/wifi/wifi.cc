@@ -9,6 +9,6 @@ namespace openmc
     {
         bool ready = false;
         char ip_address[16] = "192.168.4.1";
-        uint8_t ssid[32];
+        uint8_t ssid[33];
     } // wifi
 } // openmc

@@ -17,10 +17,11 @@ uint32_t esp_get_free_heap_size(){return 0;} uint32_t esp_get_minimum_free_heap_
 esp_err_t esp_flash_get_size(void*, uint32_t*){return 0;} uint32_t heap_caps_get_total_size(int){return 0;} void rtc_clk_cpu_freq_get_config(rtc_cpu_freq_config_t*){}
 const esp_partition_t* esp_ota_get_next_update_partition(const esp_partition_t*){return 0;} esp_err_t esp_ota_begin(const esp_partition_t*, size_t, esp_ota_handle_t*){return 0;}
 esp_err_t esp_ota_write(esp_ota_handle_t, const void*, size_t){return 0;} esp_err_t esp_ota_end(esp_ota_handle_t){return 0;} esp_err_t esp_ota_set_boot_partition(const esp_partition_t*){return 0;}
+esp_err_t esp_ota_get_partition_description(const esp_partition_t*, esp_app_desc_t*){return 0;}
 FRESULT f_getfree(const char*, DWORD*, FATFS**){return 0;}
 size_t logging_get_logs(char*, size_t){return 0;}
 #include "system/settings.h"
-namespace openmc { namespace system { struct Settings settings; } namespace wifi { bool ready; char ip_address[16]; uint8_t ssid[32]; }
+namespace openmc { namespace system { struct Settings settings; } namespace wifi { bool ready; char ip_address[16]; uint8_t ssid[33]; }
  namespace storage { namespace config { bool LoadConfig(){ return true; } } } }
 extern int g_log_quiet;
 static int fails=0; 

@@ -24,8 +24,8 @@ namespace openmc {
    }
  }
  namespace storage { namespace sdcard {
-   bool sd_ok = true; int unmounts = 0;
-   esp_err_t Init(void){ return sd_ok ? ESP_OK : ESP_FAIL; }
-   void unmount_sdcard(void){ unmounts++; }
+   bool sd_ok = true; bool sd_mounted = false; int unmounts = 0;
+   esp_err_t Init(void){ sd_mounted = sd_ok; return sd_ok ? ESP_OK : ESP_FAIL; }
+   esp_err_t unmount_sdcard(void){ unmounts++; if (!sd_ok) return ESP_FAIL; sd_mounted = false; return ESP_OK; }
  } }
 }

@@ -28,7 +28,7 @@ namespace openmc
         namespace sdcard
         {
 
-            bool mounted;
+            bool sd_mounted = false;
             const char mount_point[] = "/sdcard";
             sdmmc_card_t *card;
             sdmmc_host_t host = {
@@ -59,6 +59,8 @@ namespace openmc
                     .allocation_unit_size = 16 * 1024};
 
                 host.slot = VSPI_HOST;
+                sd_mounted = false;
+                card = NULL;
 
                 ESP_LOGI(kLogPrefix, "Initializing SD card");
 
@@ -78,6 +80,15 @@ namespace openmc
                     .flags = SPICOMMON_BUSFLAG_MASTER,
                     .intr_flags = 0};
                 ret = spi_bus_initialize((spi_host_device_t)host.slot, &bus_cfg, SPI_DMA_CHAN);
+                if (ret == ESP_ERR_INVALID_STATE)
+                {
+                    // The bus survived a previous failed mount (the old code
+                    // returned without spi_bus_free()). VSPI is dedicated to
+                    // the SD card in this board, so release and retry once.
+                    ESP_LOGW(kLogPrefix, "SPI bus already initialized; releasing and retrying.");
+                    spi_bus_free((spi_host_device_t)host.slot);
+                    ret = spi_bus_initialize((spi_host_device_t)host.slot, &bus_cfg, SPI_DMA_CHAN);
+                }
                 if (ret != ESP_OK)
                 {
                     ESP_LOGE(kLogPrefix, "Failed to initialize bus.");
@@ -109,20 +120,42 @@ namespace openmc
                                              "Make sure SD card lines have pull-up resistors in place.",
                                  esp_err_to_name(ret));
                     }
+
+                    // Do not leak the SPI bus: without this, /api/mount_sd
+                    // could never recover after a failed mount (C4).
+                    card = NULL;
+                    sd_mounted = false;
+                    spi_bus_free((spi_host_device_t)host.slot);
                     return ESP_FAIL;
                 }
 
+                sd_mounted = true;
                 return ESP_OK;
             }
 
-            void unmount_sdcard(void)
+            esp_err_t unmount_sdcard(void)
             {
+                if (!sd_mounted || card == NULL)
+                {
+                    // Nothing mounted, but make sure a stale bus is not left behind.
+                    spi_bus_free((spi_host_device_t)host.slot);
+                    return ESP_OK;
+                }
+
                 // All done, unmount partition and disable SPI peripheral
-                esp_vfs_fat_sdcard_unmount(mount_point, card);
+                esp_err_t ret = esp_vfs_fat_sdcard_unmount(mount_point, card);
+                if (ret != ESP_OK)
+                {
+                    ESP_LOGE(kLogPrefix, "Card unmount failed (%s); keeping the bus initialized.", esp_err_to_name(ret));
+                    return ret;
+                }
                 ESP_LOGI(kLogPrefix, "Card unmounted");
 
                 //deinitialize the bus after all devices are removed
                 spi_bus_free((spi_host_device_t)host.slot);
+                card = NULL;
+                sd_mounted = false;
+                return ESP_OK;
             }
         } // sdcard
     } // storage

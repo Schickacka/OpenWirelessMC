@@ -6,6 +6,22 @@ O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/p
 
 ---
 
+## [1.4.0] - 2026-10-21
+
+### Corrigido
+- **GameID `0x21`:** o firmware 1.3 deslocava o GameID em um byte (gravava o comprimento em `game_id[0]` e iniciava os caracteres em `command_ticks - 2`). A comutação automática de cartão agora usa o layout real do protocolo: tick 2 = comprimento, tick 3 = primeiro caractere.
+- **FastRead `0x42`:** passou a transmitir páginas consecutivas de 128 bytes até `SEL` subir, sem checksum/`0x47` por página, em vez de encerrar após um setor como uma leitura `0x52`.
+- **`default.mc` inválido:** o asset distribuído no 1.3 era todo zerado (checksum do setor 0 `0x00` em vez de `0x0E`). O firmware agora valida tamanho, assinatura `MC` e checksum; se inválido, move para `default.mc.invalid` e cria um Boot Card novo. `tools/regenerate_default_mc.py` regenera o asset.
+- **Vazamento do barramento SPI:** uma falha de mount não chamava `spi_bus_free()`, impedindo o *hot remount* por `/api/mount_sd`. O barramento agora é liberado em falha e no unmount.
+- **Flag de diretório (setor 0):** após commit do setor 0, o cartão volta a reportar `0x08` ("diretório não lido"), como o OpenMC original e o hardware real.
+- **Comandos MMCE `0x22`–`0x26`:** não são mais respondidos com sucesso falso (`0x20`) sem trocar nada; caem no caminho de comando não suportado.
+- **SSID de 32 caracteres:** o buffer de status foi ampliado para 33 bytes e as cópias para `wifi_config` deixaram de truncar em 31 caracteres.
+- **Documentação:** 240 MHz/350 ns e 475 títulos multi-disco foram corrigidos para 160 MHz/~525 ns nominais e 471 entradas ativas; o exemplo de multi-disco agora usa IDs presentes em `multidisc.txt`.
+- **`sdkconfig` raiz:** XTAL corrigido de 26 MHz para 40 MHz, alinhado ao `sdkconfig.esp32dev` usado pelo build PlatformIO.
+- **Testes host:** stubs de `esp_http_server.h`/`esp_ota_ops.h` atualizados (`stack_size`, `esp_app_desc_t`, `esp_ota_get_partition_description`), permitindo compilar `test_web`.
+
+---
+
 ## [1.3.0] - 2026-10-20
 
 ### Adicionado
@@ -57,11 +73,11 @@ O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/p
 
 ### Adicionado
 - **Suporte Inteligente a Jogos Multi-Disco (Multi-Disc Parent Mapping):**
-  - Mapeamento de 475 títulos multi-disco através do arquivo `/sdcard/multidisc.txt`.
+  - Mapeamento de 471 títulos multi-disco através do arquivo `/sdcard/multidisc.txt` (o valor 475 em versões anteriores era incorreto).
   - Ao alternar para discos subsequentes (ex.: Disco 2 de *Final Fantasy*, *Metal Gear Solid* ou *Chrono Cross*), o sistema redireciona o arquivo montado para o cartão principal do Disco 1, mantendo o progresso unificado sem gerar cartões vazios indesejados.
-- **Topologia de Barramento 100% Open-Drain:**
+- **Topologia de Barramento Open-Drain (experimento revertido na 1.3):**
   - Reconfiguração das linhas `DATA` (MISO / GPIO 32) e `ACK` (GPIO 33) para modo dreno aberto com dreno ativo (`GPIO_MODE_INPUT_OUTPUT_OD`).
-  - Compatibilidade com os resistores de pull-up da placa-mãe do console, prevenindo contenção de sinal quando outros periféricos (controles, multitap ou Memory Card no Slot 2) compartilham as linhas do barramento.
+  - **Atenção:** essa topologia foi a causa da falha de leitura do *Crash Bandicoot* ("Card is not Formatted") por rampa RC lenta nos bits `1`. Ela foi revertida para Push-Pull Ativo + Hi-Z na 1.3. Não reintroduzir Open-Drain sem revalidar o console; ver documentação da v1.4, seção 3.
 - **Desmontagem Segura e Remontagem a Quente (Hot Remount):**
   - Endpoints dedicados para desmontar a pilha FAT32 via interface web, permitindo troca do cartão físico sem desligar o console.
   - Opção de remontagem imediata pela interface.
@@ -78,8 +94,8 @@ O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/p
 
 ### Adicionado
 - **Emulação Completa do Barramento SIO do PS1:**
-  - Núcleo 1 dedicado em modo baremetal com execução em IRAM a 240 MHz.
-  - ACK com temporização de 84 ciclos (~350 ns), com suporte a rotinas de detecção rápida da BIOS e jogos sensíveis a timing.
+  - Núcleo 1 dedicado em modo baremetal com execução em IRAM. O build de 1.3 usa 160 MHz (`CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ=160`); a menção anterior a 240 MHz não correspondia ao binário distribuído.
+  - ACK com atraso calibrado empiricamente de 84 iterações de espera (referência teórica de ~525 ns a 160 MHz, dependente do código gerado), com suporte a rotinas de detecção rápida da BIOS e jogos sensíveis a timing. O valor de ~350 ns só faria sentido a 240 MHz e não deve ser usado como referência do build atual.
   - Imagem de 128 KB mantida em DRAM com espelhamento contínuo.
 - **Gravação In-Place por Setor:**
   - Escrita direta no MicroSD utilizando abertura em modo `r+b` e endereçamento por setor (128 bytes).

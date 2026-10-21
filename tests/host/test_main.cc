@@ -17,7 +17,7 @@ using namespace openmc;
 extern int g_log_quiet;
 namespace openmc { namespace storage { namespace sdcard { extern bool sd_ok; } } }
 namespace openmc { namespace system { struct Settings settings; } }
-namespace openmc { namespace wifi { bool ready; char ip_address[16]; uint8_t ssid[32]; } }
+namespace openmc { namespace wifi { bool ready; char ip_address[16]; uint8_t ssid[33]; } }
 
 static int fails = 0;
 #define CHECK(c) do{ if(!(c)){ printf("  FAIL line %d: %s\n", __LINE__, #c); fails++; } }while(0)
@@ -116,11 +116,15 @@ static void test_storage(){
   auto o = readfile("/sdcard/other.mc"); CHECK(o[30*128]==0x33); CHECK(o[31*128]==0xFF || o[31*128]==0x00 || true);
   auto d2 = readfile("/sdcard/default.mc"); CHECK(d2[30*128]!=0x33);
 
-  // f) invalid default.mc at boot: left untouched, emulation off (the old code overwrote it with zeros)
+  // f) invalid default.mc at boot: moved aside, replaced by a valid Boot Card
   reset_sd(); writefile("/sdcard/default.mc","not a card image",16);
   sio::memory_card_enabled=true; storage::Init();
-  CHECK(!sio::memory_card_enabled); CHECK(readfile("/sdcard/default.mc").size()==16); CHECK(storage::loaded_file_path[0]==0);
-  CHECK(committed_to_storage || true);
+  CHECK(sio::memory_card_enabled);
+  auto repaired = readfile("/sdcard/default.mc");
+  CHECK(repaired.size()==131072); CHECK(repaired[0]=='M' && repaired[1]=='C');
+  CHECK(repaired[8192]==0xFF);
+  CHECK(readfile("/sdcard/default.mc.invalid").size()==16);
+  CHECK(!strcmp(storage::loaded_file_path,"/sdcard/default.mc"));
 
   // g) no SD at boot
   reset_sd(); storage::sdcard::sd_ok=false; sio::memory_card_enabled=true; storage::Init();

@@ -97,8 +97,11 @@ namespace openmc
                 wifi_config_t wifi_config;
                 memset(&wifi_config, 0, sizeof(wifi_config));
 
-                strlcpy((char *)wifi_config.ap.ssid, (const char *)system::settings.ssid, sizeof(wifi_config.ap.ssid));
-                wifi_config.ap.ssid_len = strlen((char *)wifi_config.ap.ssid);
+                // Same fixed-size rule as the STA path: 32 characters are
+                // legal and must not be truncated to 31 (C7).
+                size_t ssid_len = strnlen((const char *)system::settings.ssid, sizeof(wifi_config.ap.ssid));
+                memcpy(wifi_config.ap.ssid, system::settings.ssid, ssid_len);
+                wifi_config.ap.ssid_len = ssid_len;
                 strlcpy((char *)wifi_config.ap.password, (const char *)system::settings.password, sizeof(wifi_config.ap.password));
                 wifi_config.ap.channel = 1;
                 wifi_config.ap.ssid_hidden = 0;
@@ -120,11 +123,13 @@ namespace openmc
                 ESP_ERROR_CHECK(esp_wifi_start());
 
                 strcpy(wifi::ip_address, "192.168.4.1");
-                strcpy((char *)&wifi::ssid, (char *)system::settings.ssid);
+                memset(wifi::ssid, 0, sizeof(wifi::ssid));
+                memcpy(wifi::ssid, system::settings.ssid,
+                       strnlen((char *)system::settings.ssid, sizeof(wifi::ssid) - 1));
 
                 // The password is intentionally NOT logged: the log ring buffer is served at /api/logs
-                ESP_LOGI(kLogPrefix, "AP Started: SSID='%s' auth=%s channel=%d IP=%s",
-                         (char *)wifi_config.ap.ssid,
+                ESP_LOGI(kLogPrefix, "AP Started: SSID='%.*s' auth=%s channel=%d IP=%s",
+                         (int)wifi_config.ap.ssid_len, (char *)wifi_config.ap.ssid,
                          (wifi_config.ap.authmode == WIFI_AUTH_OPEN) ? "open" : "WPA2", wifi_config.ap.channel, wifi::ip_address);
 
                 wifi::ready = true;

@@ -76,7 +76,9 @@ namespace openmc
                     sprintf(wifi::ip_address, IPSTR, IP2STR(&event->ip_info.ip));
                     if (esp_wifi_get_config(WIFI_IF_STA, &wifi_config) == ESP_OK)
                     {
-                        strcpy((char *)&wifi::ssid, (char *)&wifi_config.sta.ssid);
+                        memset(wifi::ssid, 0, sizeof(wifi::ssid));
+                        size_t ssid_len = strnlen((char *)wifi_config.sta.ssid, sizeof(wifi_config.sta.ssid));
+                        memcpy(wifi::ssid, wifi_config.sta.ssid, ssid_len);
                     }
 
                     s_retry_num = 0;
@@ -128,7 +130,11 @@ namespace openmc
                 wifi_config_t wifi_config;
                 memset(&wifi_config, 0, sizeof(wifi_config));
 
-                strlcpy((char *)wifi_config.sta.ssid, (const char *)system::settings.ssid, sizeof(wifi_config.sta.ssid));
+                // wifi_config.sta.ssid is a fixed 32-byte field: a 32-character
+                // SSID has no room for a NUL, and strlcpy would silently cut it
+                // to 31 characters (C7). Copy exactly, like esp_wifi expects.
+                size_t ssid_len = strnlen((const char *)system::settings.ssid, sizeof(wifi_config.sta.ssid));
+                memcpy(wifi_config.sta.ssid, system::settings.ssid, ssid_len);
                 strlcpy((char *)wifi_config.sta.password, (const char *)system::settings.password, sizeof(wifi_config.sta.password));
                 wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
                 wifi_config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;

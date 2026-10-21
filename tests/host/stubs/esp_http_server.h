@@ -5,8 +5,8 @@
 typedef struct httpd_req { const char *uri; size_t content_len; void *user_ctx; int method; } httpd_req_t;
 typedef void* httpd_handle_t;
 typedef enum { HTTPD_400_BAD_REQUEST, HTTPD_403_FORBIDDEN, HTTPD_404_NOT_FOUND, HTTPD_500_INTERNAL_SERVER_ERROR } httpd_err_code_t;
-typedef struct { int server_port; int max_uri_handlers; bool (*uri_match_fn)(const char*, const char*, size_t); } httpd_config_t;
-#define HTTPD_DEFAULT_CONFIG() {80,8,0}
+typedef struct { int server_port; int max_uri_handlers; bool (*uri_match_fn)(const char*, const char*, size_t); size_t stack_size; } httpd_config_t;
+#define HTTPD_DEFAULT_CONFIG() {80,8,0,8192}
 typedef struct { const char *uri; int method; esp_err_t (*handler)(httpd_req_t*); void *user_ctx; } httpd_uri_t;
 #define HTTP_GET 1
 #define HTTP_POST 3

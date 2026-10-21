@@ -16,7 +16,10 @@ namespace openmc
         };
         extern bool ready;
         extern char ip_address[16];
-        extern uint8_t ssid[32];
+        // 32 characters + NUL. esp_wifi_config.ssid is a 32-byte, NON
+        // NUL-terminated field; this status copy must be terminated because it
+        // is printed and serialized to JSON (C7).
+        extern uint8_t ssid[33];
     } // wifi
 } // openmc
 

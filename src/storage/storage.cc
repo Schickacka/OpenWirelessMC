@@ -434,6 +434,44 @@ namespace openmc
       return LoadCardImpl(filepath, destination, 250);
     }
 
+    // A PS1 card image is only usable if it has the right size, the "MC"
+    // signature and a valid sector-0 checksum (XOR of bytes 0x00..0x7E stored
+    // at 0x7F). The old all-zero default.mc failed this test.
+    static bool IsValidCardImage(const char *path)
+    {
+      struct stat st;
+      if (stat(path, &st) != 0 || st.st_size != CARD_SIZE_BYTES)
+      {
+        return false;
+      }
+
+      FILE *f = fopen(path, "rb");
+      if (!f)
+      {
+        return false;
+      }
+
+      uint8_t header[CARD_SECTOR_SIZE];
+      size_t got = fread(header, 1, sizeof(header), f);
+      fclose(f);
+      if (got != sizeof(header))
+      {
+        return false;
+      }
+
+      if (header[0] != 'M' || header[1] != 'C')
+      {
+        return false;
+      }
+
+      uint8_t checksum = 0;
+      for (size_t i = 0; i < sizeof(header) - 1; i++)
+      {
+        checksum ^= header[i];
+      }
+      return checksum == header[sizeof(header) - 1];
+    }
+
     // Mounts <SD>/default.mc, creating a blank formatted card if it does not exist yet.
     static bool MountDefaultCard(uint32_t settle_ms)
     {
@@ -441,6 +479,25 @@ namespace openmc
       snprintf(target, sizeof(target), "%s/default.mc", base_path);
 
       struct stat st;
+      if (stat(target, &st) == 0)
+      {
+#if MC_AUTO_REPAIR_DEFAULT_CARD
+        if (!IsValidCardImage(target))
+        {
+          // Never overwrite silently: keep the bad file for inspection.
+          char backup[CONFIG_FATFS_MAX_LFN + 16];
+          snprintf(backup, sizeof(backup), "%s.invalid", target);
+          unlink(backup);
+          if (rename(target, backup) != 0)
+          {
+            ESP_LOGE(kLogPrefix, "default.mc is invalid and could not be moved aside (errno %d); refusing to overwrite it.\n", errno);
+            return false;
+          }
+          ESP_LOGW(kLogPrefix, "default.mc was not a valid PS1 card image (size/signature/checksum); moved to %s and creating a fresh Boot Card.\n", backup);
+        }
+#endif
+      }
+
       if (stat(target, &st) != 0)
       {
         ESP_LOGW(kLogPrefix, "default.mc not found, creating a blank formatted card.\n");
@@ -448,6 +505,12 @@ namespace openmc
         {
           return false;
         }
+      }
+
+      if (!IsValidCardImage(target))
+      {
+        ESP_LOGE(kLogPrefix, "default.mc is still invalid after creation; leaving memory card emulation disabled.\n");
+        return false;
       }
 
       return LoadCardImpl(target, sio::memory_card::memory_card_ram, settle_ms);
@@ -709,14 +772,22 @@ namespace openmc
         ESP_LOGE(kLogPrefix, "SafelyUnmountSD: could not save pending changes, SD kept mounted.\n");
         return false;
       }
+      // Stop new console writes first, then unmount. If the unmount fails we
+      // re-enable emulation so the still-mounted card keeps working.
       sio::SetMemoryCardEmulation(false);
-      loaded_file_path[0] = '\0';
 
       if (storage::ready)
       {
-        sdcard::unmount_sdcard();
+        if (sdcard::unmount_sdcard() != ESP_OK)
+        {
+          ESP_LOGE(kLogPrefix, "SafelyUnmountSD: unmount failed, card kept mounted.\n");
+          sio::SetMemoryCardEmulation(true);
+          return false;
+        }
         storage::ready = false;
       }
+
+      loaded_file_path[0] = '\0';
       ESP_LOGI(kLogPrefix, "SafelyUnmountSD complete: SD is safe to remove.\n");
       return true;
     }

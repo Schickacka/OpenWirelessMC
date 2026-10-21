@@ -77,6 +77,15 @@ namespace openmc
             }
           }
 
+#if MC_STRICT_DIRECTORY_FLAG
+          // The directory may have changed: a real card tells the console to
+          // re-read it on the next access. OpenMC did this; the 1.3 fork lost it.
+          if (sector == 0x0000)
+          {
+            flag = Flags::kDirectoryUnread;
+          }
+#endif
+
           // Clear (soft)buffer status before return
           uncommited_soft_write = false;
 
@@ -187,10 +196,6 @@ namespace openmc
             case Commands::kGameID:
             case Commands::kPing:
             case Commands::kReset:
-            case Commands::kPreviousChannel:
-            case Commands::kNextChannel:
-            case Commands::kPreviousCard:
-            case Commands::kNextCard:
               current_command = data_in;
               // Re-evaluate command
               // command_routed = false;
@@ -242,14 +247,6 @@ namespace openmc
 
           case Commands::kReset:
             data_out = TickResetCommand(data_in);
-            command_routed = true;
-            break;
-
-          case Commands::kPreviousChannel:
-          case Commands::kNextChannel:
-          case Commands::kPreviousCard:
-          case Commands::kNextCard:
-            data_out = TickChannelCommand(data_in);
             command_routed = true;
             break;
 
