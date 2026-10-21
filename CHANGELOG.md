@@ -6,15 +6,21 @@ O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/p
 
 ---
 
-## [1.2.1] - 2026-10-20
+## [1.3.0] - 2026-10-20
+
+### Adicionado
+- **Documentação Arquitetural Comparativa Completa:**
+  - Seção detalhada e aprofundada no `README.md` documentando todas as divergências técnicas e de engenharia entre o OpenWirelessMC e o projeto original OpenMC (topologia de barramento, isolamento de núcleos com Core 0 stall, persistência in-place por setor, sincronização GameID multicore, mapeamento multi-disco, template Sony sd2psX, cache versionado do cliente e alocação de DRAM).
+- **Pacote de Distribuição v1.3:**
+  - Lançamento do pacote `v1.3_package` e arquivo `OpenWirelessMC_v1.3_Complete_Package.zip` com binários dual-OTA e scripts atualizados.
 
 ### Corrigido
 - **Restauração do Acionamento Push-Pull Ativo para MISO/DATA e ACK:**
   - Reversão do modo Open-Drain puro que causava rampa de subida lenta (tempo RC) devido aos resistores de pull-up fracos (~10kΩ) da placa-mãe do PS1 na linha DATA.
-  - O ESP32 opera em Push-Pull ativo (3.3V com tempos de subida ultrarrápidos) quando selecionado (`ActiveMode`), garantindo leitura íntegra e sem corrupção de checksum em alta velocidade no *Crash Bandicoot* e jogos que utilizam o SDK Sony com amostragem rápida ("Checking Format" -> formato reconhecido com sucesso).
-  - Em modo inativo (`PassiveMode`), os pinos permanecem em alta impedância (*Hi-Z* via `GPIO_ENABLE1_W1TC_REG`), mantendo total isolamento contra contenção de barramento com controles e Slot 2.
-- **Restauração da Sequência de Leitura sem Aborto Prematuro de ACK:**
-  - Remoção de abortos intempestivos em `TickReadCommand` nos setores limítrofes, assegurando confirmação contínua de blocos segundo a especificação oficial de Memory Card PS1.
+  - O ESP32 opera em Push-Pull ativo (3.3V com tempos de subida de nanossegundos) quando selecionado (`ActiveMode`), garantindo leitura íntegra e sem corrupção de checksum em alta velocidade no *Crash Bandicoot* e jogos que utilizam o SDK Sony com amostragem rápida ("Checking Format" -> formato reconhecido com sucesso imediato).
+  - Em modo inativo (`PassiveMode`), os pinos permanecem em alta impedância (*Hi-Z* via `GPIO_ENABLE1_W1TC_REG`), mantendo total isolamento elétrico contra contenção de barramento com controles e Slot 2.
+- **Restauração da Sequência Contínua de Leitura sem Aborto Prematuro de ACK:**
+  - Remoção de cortes de ACK intempestivos em `TickReadCommand` nos setores limítrofes, assegurando confirmação contínua de blocos segundo a especificação oficial de Memory Card PS1.
 - **Isolamento de Barramento no Tratador de Interrupção SPI:**
   - Restauração de `core0_stall_end()` ao término completo do frame do barramento (incluindo desasserção de SEL), prevenindo interferência de tarefas de segundo plano durante transações críticas de I/O.
 
