@@ -43,10 +43,6 @@
             <span style="color:var(--text-muted); text-transform:none;" data-i18n="ps1_remaining_space">Espaço restante para PS1 (128 KB):</span>
             <span id="ps1-estimate" style="font-weight:700; color:var(--ps-green);">-- saves</span>
           </div>
-          <div style="display:flex; justify-content:space-between;">
-            <span style="color:var(--text-muted); text-transform:none;" data-i18n="ps2_remaining_space">Espaço restante para PS2 (8 MB):</span>
-            <span id="ps2-estimate" style="font-weight:700; color:var(--ps-pink);">-- saves</span>
-          </div>
         </div>
 
         <!-- Botão: Remover com Segurança -->
@@ -94,7 +90,7 @@
         <div style="display:flex; flex-direction:column; gap:8px; font-size:13px;">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
             <span style="color:var(--text-muted); flex-shrink:0;">Firmware:</span>
-            <span style="font-weight:700; color:var(--ps-green); text-align:right;">v1.4</span>
+            <span id="firmware-version-text" style="font-weight:700; color:var(--ps-green); text-align:right;">--</span>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 10px; background:#14151a; border-radius:var(--radius-sm);">
             <span style="color:var(--text-muted); flex-shrink:0;">Chipset:</span>
@@ -711,7 +707,6 @@ function fetchStatus() {
         document.getElementById('sd-free').innerText = '-';
         document.getElementById('sd-total').innerText = '-';
         document.getElementById('ps1-estimate').innerText = 'Nenhum';
-        document.getElementById('ps2-estimate').innerText = 'Nenhum';
         if (badge) badge.innerHTML = '<span class="tag tag-file" style="background:rgba(255,59,48,0.2); color:#ff6b6b; border:1px solid rgba(255,59,48,0.4);">Desmontado</span>';
         if (btnEjectSd) {
           btnEjectSd.disabled = false;
@@ -739,9 +734,7 @@ function fetchStatus() {
 
         // Estimativa de Saves
         var ps1Saves = Math.floor(data.sd_free / 131072);
-        var ps2Saves = Math.floor(data.sd_free / (8 * 1024 * 1024));
         document.getElementById('ps1-estimate').innerText = '~' + ps1Saves.toLocaleString() + ' saves';
-        document.getElementById('ps2-estimate').innerText = '~' + ps2Saves.toLocaleString() + ' saves';
         if (badge) badge.innerHTML = '<span class="tag tag-mc">Montado</span>';
       }
       // Wi-Fi
@@ -752,6 +745,13 @@ function fetchStatus() {
         document.getElementById('wifi-rssi-text').innerText = data.rssi + ' dBm ' + (data.rssi > -60 ? '(Excelente)' : data.rssi > -75 ? '(Bom)' : '(Fraco)');
       } else {
         document.getElementById('wifi-rssi-text').innerText = 'Ponto de Acesso Ativo';
+      }
+      // Firmware Version automatica
+      if (data.version) {
+        var fwElem = document.getElementById('firmware-version-text');
+        if (fwElem) fwElem.innerText = data.version;
+        var subElem = document.getElementById('app-subtitle');
+        if (subElem) subElem.innerText = 'Wireless Memory Card Manager ' + data.version;
       }
       // Hardware
       if (data.chip) {
@@ -771,8 +771,7 @@ function fetchStatus() {
       
       // Saves por console (PS1 e PS2)
       var ps1 = data.ps1_count !== undefined ? data.ps1_count : (data.mc_count || 0);
-      var ps2 = data.ps2_count !== undefined ? data.ps2_count : 0;
-      document.getElementById('total-saves-text').innerText = (data.mc_count || '0') + ' saves (' + ps1 + ' PS1 • ' + ps2 + ' PS2)';
+      document.getElementById('total-saves-text').innerText = (data.mc_count || '0') + ' saves (PS1)';
       
 
       // Preencher formulário de configuração com valores se vazios

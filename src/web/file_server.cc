@@ -1278,6 +1278,9 @@ namespace openmc
                     titles_version = (uint32_t)((uint32_t)t_stat.st_size ^ (uint32_t)t_stat.st_mtime);
                 }
 
+                const esp_app_desc_t *app_desc = esp_ota_get_app_description();
+                const char *fw_version = (app_desc && app_desc->version[0] != '\0') ? app_desc->version : "v1.4.0";
+
                 char *json_resp = (char *)malloc(1536);
                 if (!json_resp)
                 {
@@ -1288,7 +1291,7 @@ namespace openmc
                     "{\"sd_total\":%llu,\"sd_free\":%llu,\"sd_mounted\":%s,\"heap_free\":%u,\"heap_min\":%u,\"ram_total\":%u,"
                     "\"wifi_mode\":%d,\"ssid\":\"%s\",\"rssi\":%d,\"ip\":\"%s\","
                     "\"loaded_file\":\"%s\",\"uptime\":%lld,\"mc_count\":%d,\"ps1_count\":%d,\"ps2_count\":%d,"
-                    "\"chip\":\"%s\",\"cores\":%d,\"cpu_freq\":%u,\"flash_size\":%u,\"sio_emulation\":%s,\"titles_version\":%u}",
+                    "\"chip\":\"%s\",\"cores\":%d,\"cpu_freq\":%u,\"flash_size\":%u,\"sio_emulation\":%s,\"titles_version\":%u,\"version\":\"%s\"}",
                     (unsigned long long)total_bytes, (unsigned long long)free_bytes,
                     storage::ready ? "true" : "false",
                     (unsigned int)esp_get_free_heap_size(), (unsigned int)esp_get_minimum_free_heap_size(),
@@ -1299,7 +1302,8 @@ namespace openmc
                     (ps1_count + ps2_count), ps1_count, ps2_count,
                     chip_desc, (int)chip_info.cores, (unsigned int)freq_cfg.freq_mhz, (unsigned int)(flash_size / (1024 * 1024)),
                     sio::memory_card_enabled ? "true" : "false",
-                    (unsigned int)titles_version);
+                    (unsigned int)titles_version,
+                    fw_version);
 
                 httpd_resp_set_type(req, "application/json");
                 esp_err_t res = httpd_resp_send(req, json_resp, strlen(json_resp));
