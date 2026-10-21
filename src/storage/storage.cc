@@ -34,6 +34,15 @@
 #define FLUSH_MAX_DIRTY_MS 1000
 #define FLUSH_RETRY_DELAY_MS 3000
 
+// If default.mc is not a valid PS1 card image (wrong size, missing "MC"
+// signature or bad sector-0 checksum), move it aside and create a fresh one.
+// The 1.3 release shipped an all-zero default.mc; without this the console
+// showed "Card is not Formatted" even though the README promised a ready
+// "Boot Card". See CORRECOES-v1.4.md (C3).
+#ifndef MC_AUTO_REPAIR_DEFAULT_CARD
+#define MC_AUTO_REPAIR_DEFAULT_CARD 1
+#endif
+
 namespace openmc
 {
   namespace storage

@@ -13,6 +13,15 @@
 
 //#define MC_DEBUG
 
+// Directory-status fidelity (see CORRECOES-v1.4.md, C5).
+// A real PS1 card reports 0x08 ("directory not read") again after sector 0 is
+// committed, because the directory may have changed. The original OpenMC did
+// this in Commit(); this fork had dropped it. Keep the switch so the old
+// behaviour can be restored without touching the logic.
+#ifndef MC_STRICT_DIRECTORY_FLAG
+#define MC_STRICT_DIRECTORY_FLAG 1
+#endif
+
 namespace openmc
 {
   namespace sio
@@ -28,7 +37,10 @@ namespace openmc
       uint8_t DRAM_ATTR flag = Flags::kDirectoryUnread;
 
       static uint8_t DRAM_ATTR current_command;
-      static uint16_t DRAM_ATTR command_ticks;
+      // 32-bit: the long/fast read (0x42) can stream for far more than 65535
+      // bytes without ever ending. A 16-bit counter wrapped back into the
+      // command header and corrupted the stream.
+      static uint32_t DRAM_ATTR command_ticks;
 
       uint16_t DRAM_ATTR sector;
       static uint8_t DRAM_ATTR sector_offset;
@@ -108,9 +120,17 @@ namespace openmc
         {
           Commit();
         }
-        if (current_command == Commands::kGameID && command_ticks >= 2)
+        // GameID byte layout, counted from the byte that follows 0x21:
+        //   tick 0 = 0x21 itself, tick 1 = reserved, tick 2 = length,
+        //   tick 3.. = characters. GoIdle() therefore has to subtract 3,
+        //   not 2 (C1 in CORRECOES-v1.4.md).
+        if (current_command == Commands::kGameID && command_ticks >= 3 && game_id_length > 0)
         {
-          uint16_t chars_received = (command_ticks > 2) ? (command_ticks - 2) : 0;
+          uint32_t chars_received = command_ticks - 3;
+          if (chars_received > game_id_length)
+          {
+            chars_received = game_id_length;
+          }
           if (chars_received > 0 && !game_id_updated)
           {
             if (chars_received >= sizeof(game_id)) chars_received = sizeof(game_id) - 1;
@@ -267,6 +287,37 @@ namespace openmc
       uint8_t IRAM_ATTR TickReadCommand(uint8_t &data_in)
       {
         uint8_t data_out = 0xFF;
+
+        // 0x42 'B' (long/fast read). The 1.3 firmware treated it as a normal
+        // 0x52 read: it sent one sector, then checksum + 0x47 and went Hi-Z.
+        // A real card (and sd2psXtd) streams 128-byte pages back-to-back until
+        // SEL rises, with no per-page checksum and no 0x47 terminator.
+        // C2 in CORRECOES-v1.4.md. Keep this branch before the switch: after
+        // tick 8 the normal read state machine must not run for 0x42.
+        if (current_command == Commands::kFastRead && command_ticks >= 8)
+        {
+          if (sector >= 1024)
+          {
+            // Past the 128 KB image. A real card does not expose more; output
+            // zeroes instead of reading outside memory_card_ram.
+            data_out = 0x00;
+          }
+          else
+          {
+            data_out = memory_card_ram[(sector * (uint16_t)128) + sector_offset];
+          }
+
+          checksum_out ^= data_out;
+          sector_offset++;
+          if (sector_offset >= 128)
+          {
+            sector_offset = 0;
+            sector++;
+          }
+
+          command_ticks++;
+          return data_out;
+        }
 
         switch (command_ticks)
         {
@@ -466,32 +517,46 @@ namespace openmc
 
         switch (command_ticks)
         {
-        case 0: // Byte 2 (0x00 reserved)
-          game_id_length = 0;
+        // Tick 0 sees 0x21 itself (ProcessEvents falls through from kAccess
+        // into the new command), tick 1 is the reserved byte, tick 2 is the
+        // length and tick 3 is the first character. The 1.3 code assumed tick
+        // 0 was the reserved byte, so it stored the length as game_id[0] and
+        // shifted every character by one. C1 in CORRECOES-v1.4.md.
+        case 0: // 0x21 command byte
+        case 1: // reserved
           data_out = Responses::kReserved;
           break;
 
-        case 1: // Byte 3: Length of GameID (strlen)
+        case 2: // length of the GameID (strlen + 1)
           game_id_length = data_in;
-          data_out = Responses::kReserved;
+          // The spec's DATA column for the data bytes is "Prev Byte": the
+          // first character byte must see the length echoed back, then each
+          // following byte sees the previous character (sd2psXtd does this
+          // with prev = length). This value is transferred on the next byte.
+          data_out = data_in;
           break;
 
-        default: // Byte 4+: GameID characters
+        default: // first and subsequent GameID characters
           {
-            uint16_t char_idx = command_ticks - 2;
-            if (char_idx < (sizeof(game_id) - 1))
+            uint32_t char_idx = command_ticks - 3;
+            if (game_id_length > 0 &&
+                char_idx < (sizeof(game_id) - 1) &&
+                char_idx < game_id_length)
             {
               game_id[char_idx] = data_in;
             }
 
-            if (data_in == '\0' || (game_id_length > 0 && (char_idx + 1) >= game_id_length))
+            bool complete = (game_id_length > 0 && (char_idx + 1) >= game_id_length);
+            bool terminated = (game_id_length > 0 && data_in == '\0');
+            if (complete || terminated)
             {
-              uint16_t term_idx = (char_idx + 1 < sizeof(game_id)) ? (char_idx + 1) : (sizeof(game_id) - 1);
+              uint32_t term_idx = complete ? game_id_length : char_idx;
+              if (term_idx >= sizeof(game_id)) term_idx = sizeof(game_id) - 1;
               game_id[term_idx] = '\0';
               __sync_synchronize();
               game_id_updated = true;
             }
-            data_out = data_in; // echo previous byte
+            data_out = data_in; // echo the previous byte, like sd2psXtd
           }
           break;
         }
@@ -573,38 +638,6 @@ namespace openmc
           break;
 
         case 8: // 00h
-        default:
-          skip_ack = true;
-          data_out = Responses::kIdleHighZ;
-          spi::PassiveMode();
-          break;
-        }
-
-        command_ticks++;
-
-        return data_out;
-      }
-
-      uint8_t IRAM_ATTR TickChannelCommand(uint8_t &data_in)
-      {
-        uint8_t data_out = 0xFF;
-
-        switch (command_ticks)
-        {
-        case 0:
-        case 1:
-          data_out = Responses::kDummy; // 0x00
-          break;
-
-        case 2:
-          data_out = Responses::kSuccess; // 0x20
-          break;
-
-        case 3:
-          data_out = Responses::kTerminationSignal; // 0xFF
-          trace_status = data_out;
-          break;
-
         default:
           skip_ack = true;
           data_out = Responses::kIdleHighZ;
