@@ -89,14 +89,6 @@ namespace openmc
             }
           }
 
-#if MC_STRICT_DIRECTORY_FLAG
-          // The directory may have changed: a real card tells the console to
-          // re-read it on the next access. OpenMC did this; the 1.3 fork lost it.
-          if (sector == 0x0000)
-          {
-            flag = Flags::kDirectoryUnread;
-          }
-#endif
 
           // Clear (soft)buffer status before return
           uncommited_soft_write = false;
@@ -107,6 +99,14 @@ namespace openmc
             sector_version[sector]++;
             __sync_synchronize();
             committed_to_storage = false;
+#if MC_STRICT_DIRECTORY_FLAG
+            // The directory may have changed: a real card tells the console to
+            // re-read it on the next access. OpenMC did this; the 1.3 fork lost it.
+            if (sector == 0x0000)
+            {
+              flag = Flags::kDirectoryUnread;
+            }
+#endif
           }
           last_write_tick = sio::event_ticks;
         }
@@ -133,8 +133,9 @@ namespace openmc
           }
           if (chars_received > 0 && !game_id_updated)
           {
-            if (chars_received >= sizeof(game_id)) chars_received = sizeof(game_id) - 1;
+            if (chars_received >= (sizeof(game_id) - 1)) chars_received = sizeof(game_id) - 2;
             game_id[chars_received] = '\0';
+            game_id_length = chars_received;
             __sync_synchronize();
             game_id_updated = true;
           }
@@ -172,7 +173,7 @@ namespace openmc
 
       uint8_t IRAM_ATTR ProcessEvents(uint8_t data_in)
       {
-        uint8_t data_out;
+        uint8_t data_out = 0xFF;
         bool command_routed = false;
 
         last_tick = sio::event_ticks;
@@ -296,11 +297,16 @@ namespace openmc
         // tick 8 the normal read state machine must not run for 0x42.
         if (current_command == Commands::kFastRead && command_ticks >= 8)
         {
+          if (command_ticks == 8)
+          {
+            sector_offset = 0;
+          }
           if (sector >= 1024)
           {
-            // Past the 128 KB image. A real card does not expose more; output
-            // zeroes instead of reading outside memory_card_ram.
-            data_out = 0x00;
+            skip_ack = true;
+            data_out = Responses::kIdleHighZ;
+            spi::PassiveMode();
+            return data_out;
           }
           else
           {
@@ -377,6 +383,10 @@ namespace openmc
         case 137:
           data_out = Responses::kGoodReadWrite;
           trace_status = data_out;
+          if (sector == 0x0000)
+          {
+            flag = Flags::kDirectoryRead;
+          }
           break;
 
         case 138:
@@ -397,6 +407,7 @@ namespace openmc
           }
           else
           {
+            // Real card: after 0x47 (tick 137), release the bus to Hi-Z and skip ACK
             skip_ack = true;
             data_out = Responses::kIdleHighZ;
             spi::PassiveMode();
@@ -464,13 +475,12 @@ namespace openmc
           }
           else if (checksum_in == checksum_out)
           {
+            // Any successful write clears the flag to ready (0x00 / kDirectoryRead).
+            // A real PS1 card / sd2psX never stays at 0x08 during active saves.
             flag = Flags::kDirectoryRead;
             data_out = Responses::kGoodReadWrite;
             // If the incoming sector is within our storage, store it
-            if (sector < 1024)
-            {
-              uncommited_soft_write = true;
-            }
+            uncommited_soft_write = true;
           }
           else
           {
@@ -499,6 +509,7 @@ namespace openmc
           }
           else
           {
+            GoIdle();
             current_command = PS1_SIOCommands::Ignore;
             spi::Disable();
           }

@@ -51,8 +51,11 @@ void IRAM_ATTR core0_stall_start(void)
 
 void IRAM_ATTR core0_stall_end(void)
 {
-    while (!core0_stall_start_var[0])
-        ;
+    uint32_t timeout = 50000;
+    while (!core0_stall_start_var[0] && --timeout)
+    {
+        __asm__ __volatile__("nop");
+    }
     core0_stall_end_var[0] = 1;
 }
 

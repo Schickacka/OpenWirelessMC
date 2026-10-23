@@ -50,7 +50,7 @@ namespace openmc
             // Delay ~10uS from last clock pulse
             for (int i = 0; i < 84; i++)
             {
-                if ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) && ConfirmUnselected())
+                if (GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask)
                 {
                     last_abort_reason = 50;
                     // Return false, ack not sent
@@ -58,13 +58,14 @@ namespace openmc
                 }
             }
 
-            // Drop ACK LO
+            // Drop ACK to GND (open-drain: data=0, enable output)
             REG_WRITE(GPIO_OUT1_W1TC_REG, kACK_Bitmask);
+            REG_WRITE(GPIO_ENABLE1_W1TS_REG, kACK_Bitmask);
 
             // Delay ~2uS
             for (int i = 0; i < 20; i++)
             {
-                if ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) && ConfirmUnselected())
+                if (GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask)
                 {
                     last_abort_reason = 51;
                     // Device not selected anymore, break early
@@ -72,8 +73,8 @@ namespace openmc
                 }
             }
 
-            // Put ACK back high
-            REG_WRITE(GPIO_OUT1_W1TS_REG, kACK_Bitmask);
+            // Release ACK back to High-Z (open-drain release: disable output)
+            REG_WRITE(GPIO_ENABLE1_W1TC_REG, kACK_Bitmask);
 
             // Return true, ack sent
             return true;

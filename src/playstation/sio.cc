@@ -61,7 +61,18 @@ namespace openmc
                         (current_command == PS1_SIOCommands::PAD_Access && pad_enabled) ||
                         (current_command == PS1_SIOCommands::NY_Access && net_yaroze_enabled))
                     {
-                        spi::ActiveMode();
+                        // Double check SEL_MC1 is genuinely LOW before driving MISO!
+                        // If SEL is HIGH, this address byte was meant for Slot 2!
+                        if ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) == 0)
+                        {
+                            spi::ActiveMode();
+                        }
+                        else
+                        {
+                            current_command = PS1_SIOCommands::Ignore;
+                            spi::Disable();
+                            return;
+                        }
                     }
                 }
 
