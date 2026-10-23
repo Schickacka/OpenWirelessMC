@@ -53,6 +53,10 @@ namespace openmc
                 if (GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask)
                 {
                     last_abort_reason = 50;
+                    // SEL ended the transaction. Release MISO/ACK immediately;
+                    // waiting for the ISR epilogue leaves a push-pull DATA high
+                    // window that collides with the next controller poll.
+                    PassiveMode();
                     // Return false, ack not sent
                     return false;
                 }
@@ -68,8 +72,9 @@ namespace openmc
                 if (GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask)
                 {
                     last_abort_reason = 51;
-                    // Device not selected anymore, break early
-                    break;
+                    // Device not selected anymore: release both lines now.
+                    PassiveMode();
+                    return false;
                 }
             }
 
@@ -110,6 +115,7 @@ namespace openmc
                     if ((in1 & kSEL_Bitmask) && ConfirmUnselected())
                     {
                         last_abort_reason = (bitPos == 0) ? 2 : (10 + bitPos);
+                        PassiveMode();
                         selected = false;
                         return 0xFF;
                     }
@@ -118,6 +124,7 @@ namespace openmc
                     if (timeout_ticks >= MAX_TIMEOUT_TICKS)
                     {
                         last_abort_reason = 20 + bitPos;
+                        PassiveMode();
                         selected = false;
                         return 0xFF;
                     }
@@ -151,6 +158,7 @@ namespace openmc
                     if ((in1 & kSEL_Bitmask) && ConfirmUnselected())
                     {
                         last_abort_reason = 30 + bitPos;
+                        PassiveMode();
                         selected = false;
                         return 0xFF;
                     }
@@ -159,6 +167,7 @@ namespace openmc
                     if (timeout_ticks >= MAX_TIMEOUT_TICKS)
                     {
                         last_abort_reason = 40 + bitPos;
+                        PassiveMode();
                         selected = false;
                         return 0xFF;
                     }
