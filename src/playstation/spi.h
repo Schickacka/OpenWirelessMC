@@ -53,14 +53,12 @@ namespace openmc
                 if ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) && ConfirmUnselected())
                 {
                     last_abort_reason = 50;
-                    // SEL ended the transaction. Release MISO/ACK immediately
-                    PassiveMode();
                     // Return false, ack not sent
                     return false;
                 }
             }
 
-            // Drop ACK LO (push-pull)
+            // Drop ACK LO
             REG_WRITE(GPIO_OUT1_W1TC_REG, kACK_Bitmask);
 
             // Delay ~2uS
@@ -69,13 +67,12 @@ namespace openmc
                 if ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) && ConfirmUnselected())
                 {
                     last_abort_reason = 51;
-                    // Device not selected anymore: release both lines now.
-                    PassiveMode();
-                    return false;
+                    // Device not selected anymore, break early
+                    break;
                 }
             }
 
-            // Put ACK back high (push-pull active drive: fast rise time for Crash Bandicoot)
+            // Put ACK back high
             REG_WRITE(GPIO_OUT1_W1TS_REG, kACK_Bitmask);
 
             // Return true, ack sent
@@ -90,7 +87,6 @@ namespace openmc
             {
                 last_abort_reason = 1;
                 selected = false;
-                PassiveMode();
                 return 0xFF;
             }
             uint8_t data_in = 0x00;
@@ -109,11 +105,10 @@ namespace openmc
                     {
                         break;
                     }
-                    // Abort if genuinely unselected (debounced)
+                    // Abort if genuinely unselected
                     if ((in1 & kSEL_Bitmask) && ConfirmUnselected())
                     {
                         last_abort_reason = (bitPos == 0) ? 2 : (10 + bitPos);
-                        PassiveMode();
                         selected = false;
                         return 0xFF;
                     }
@@ -122,7 +117,6 @@ namespace openmc
                     if (timeout_ticks >= MAX_TIMEOUT_TICKS)
                     {
                         last_abort_reason = 20 + bitPos;
-                        PassiveMode();
                         selected = false;
                         return 0xFF;
                     }
@@ -152,11 +146,10 @@ namespace openmc
                     {
                         break;
                     }
-                    // Abort if genuinely unselected (debounced)
+                    // Abort if genuinely unselected
                     if ((in1 & kSEL_Bitmask) && ConfirmUnselected())
                     {
                         last_abort_reason = 30 + bitPos;
-                        PassiveMode();
                         selected = false;
                         return 0xFF;
                     }
@@ -165,7 +158,6 @@ namespace openmc
                     if (timeout_ticks >= MAX_TIMEOUT_TICKS)
                     {
                         last_abort_reason = 40 + bitPos;
-                        PassiveMode();
                         selected = false;
                         return 0xFF;
                     }

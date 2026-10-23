@@ -67,15 +67,10 @@ namespace openmc
         {
             // Disable MISO and ACK pins (Hi-Z)
             REG_WRITE(GPIO_ENABLE1_W1TC_REG, (kMISO_Bitmask | kACK_Bitmask));
-            // Clear outputs so they don't latch high
-            REG_WRITE(GPIO_OUT1_W1TC_REG, (kMISO_Bitmask | kACK_Bitmask));
         }
 
         uint32_t IRAM_ATTR InterruptHandler(uint32_t cause)
         {
-            // Immediately ensure MISO and ACK are high-Z (PassiveMode)
-            PassiveMode();
-
             // Clear falling-edge interrupt status immediately upon entry
             REG_WRITE(GPIO_STATUS1_W1TC_REG, kSEL_Bitmask);
 
@@ -87,14 +82,14 @@ namespace openmc
                 return 0;
             }
 
-            // Stall core0 to prevent interruptions during genuine Slot 1 transaction
+            // Stall core0 to prevent interruptions
             core0_stall_start();
 
             // Storage for outgoing byte, start hi-Z
             uint8_t last_byte = 0xFF;
             last_abort_reason = 0;
 
-            // Interrupt triggered on falling edge and confirmed stably LOW
+            // Interrupt triggered on falling edge, assume we're going in hot
             selected = true;
 
             // Do SPI loop
@@ -129,8 +124,9 @@ namespace openmc
             // Re-Enable SPI if previously set to Disable(ignore mode)
             Enable();
 
-            // If we exited early while SEL was still LOW, wait for it to return HIGH
-            // (e.g. during a 9-byte Controller 1 packet from BlueRetro lasting ~400us)
+            // If we exited early (e.g. Controller poll 0x01) while SEL is still LOW,
+            // wait for the transaction to finish and SEL to go HIGH so crosstalk on SEL
+            // during the remaining controller bytes does not re-trigger InterruptHandler mid-frame
             uint32_t wait_sel_ticks = 0;
             while (!((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) && ConfirmUnselected()))
             {

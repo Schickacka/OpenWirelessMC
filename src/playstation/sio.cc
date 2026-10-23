@@ -1,29 +1,23 @@
-#include "playstation/sio.h"
+#include "sio.h"
 
 #include "pins.h"
+#include "playstation/spi.h"
 #include "playstation/sio_controller.h"
 #include "playstation/sio_memory_card.h"
 #include "playstation/sio_net_yaroze.h"
-#include "playstation/spi.h"
-
-#include <esp32/rom/ets_sys.h>
-#include <soc/gpio_struct.h>
 
 namespace openmc
 {
     namespace sio
     {
         uint8_t DRAM_ATTR current_command = PS1_SIOCommands::Idle;
-
-        bool DRAM_ATTR memory_card_enabled = true;
-        bool DRAM_ATTR pad_enabled = false;
-        bool DRAM_ATTR net_yaroze_enabled = false;
-
         uint64_t DRAM_ATTR event_ticks;
+        bool DRAM_ATTR pad_enabled = false;
+        bool DRAM_ATTR memory_card_enabled = true;
+        bool DRAM_ATTR net_yaroze_enabled = false;
 
         void IRAM_ATTR GoIdle()
         {
-            // Reset emulated device commands/variables
             controller::GoIdle();
             memory_card::GoIdle();
             net_yaroze::GoIdle();
@@ -61,18 +55,7 @@ namespace openmc
                         (current_command == PS1_SIOCommands::PAD_Access && pad_enabled) ||
                         (current_command == PS1_SIOCommands::NY_Access && net_yaroze_enabled))
                     {
-                        // Double check SEL_MC1 is genuinely LOW before driving MISO!
-                        // If SEL is HIGH, this address byte was meant for Slot 2!
-                        if ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) == 0)
-                        {
-                            spi::ActiveMode();
-                        }
-                        else
-                        {
-                            current_command = PS1_SIOCommands::Ignore;
-                            spi::Disable();
-                            return;
-                        }
+                        spi::ActiveMode();
                     }
                 }
 
