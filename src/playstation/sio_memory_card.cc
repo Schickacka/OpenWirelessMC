@@ -165,6 +165,7 @@ namespace openmc
           }
           trace_active = false;
         }
+        trace_active = false;
         current_command = Commands::kNone;
         command_ticks = 0;
         sector_offset = 0;
@@ -228,9 +229,8 @@ namespace openmc
             default:
               data_out = Responses::kIdleHighZ;
               GoIdle();
-              skip_ack = true;
               command_routed = true;
-              spi::Disable();
+              spi::PassiveMode();
 #ifdef MC_DEBUG
               ets_printf(debug_string, data_in);
 #endif
@@ -275,9 +275,8 @@ namespace openmc
           default:
             data_out = Responses::kIdleHighZ;
             GoIdle();
-            skip_ack = true;
             command_routed = true;
-            spi::Disable();
+            spi::PassiveMode();
             break;
           }
         }
@@ -303,10 +302,7 @@ namespace openmc
           }
           if (sector >= 1024)
           {
-            skip_ack = true;
-            data_out = Responses::kIdleHighZ;
-            spi::PassiveMode();
-            return data_out;
+            data_out = 0x00;
           }
           else
           {
@@ -490,10 +486,8 @@ namespace openmc
         default:
           if (command_ticks >= 136)
           {
-            skip_ack = true;
-            data_out = Responses::kIdleHighZ;
-            spi::PassiveMode();
             Commit();
+            data_out = Responses::kCommandAcknowledge1;
           }
           else if (command_ticks >= 5 && command_ticks <= 132)
           {
