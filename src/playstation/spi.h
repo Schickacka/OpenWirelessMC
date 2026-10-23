@@ -50,26 +50,23 @@ namespace openmc
             // Delay ~10uS from last clock pulse
             for (int i = 0; i < 84; i++)
             {
-                if (GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask)
+                if ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) && ConfirmUnselected())
                 {
                     last_abort_reason = 50;
-                    // SEL ended the transaction. Release MISO/ACK immediately;
-                    // waiting for the ISR epilogue leaves a push-pull DATA high
-                    // window that collides with the next controller poll.
+                    // SEL ended the transaction. Release MISO/ACK immediately
                     PassiveMode();
                     // Return false, ack not sent
                     return false;
                 }
             }
 
-            // Drop ACK to GND (open-drain: data=0, enable output)
+            // Drop ACK LO (push-pull)
             REG_WRITE(GPIO_OUT1_W1TC_REG, kACK_Bitmask);
-            REG_WRITE(GPIO_ENABLE1_W1TS_REG, kACK_Bitmask);
 
             // Delay ~2uS
             for (int i = 0; i < 20; i++)
             {
-                if (GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask)
+                if ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) && ConfirmUnselected())
                 {
                     last_abort_reason = 51;
                     // Device not selected anymore: release both lines now.
@@ -78,8 +75,8 @@ namespace openmc
                 }
             }
 
-            // Release ACK back to High-Z (open-drain release: disable output)
-            REG_WRITE(GPIO_ENABLE1_W1TC_REG, kACK_Bitmask);
+            // Put ACK back high (push-pull active drive: fast rise time for Crash Bandicoot)
+            REG_WRITE(GPIO_OUT1_W1TS_REG, kACK_Bitmask);
 
             // Return true, ack sent
             return true;
@@ -93,6 +90,7 @@ namespace openmc
             {
                 last_abort_reason = 1;
                 selected = false;
+                PassiveMode();
                 return 0xFF;
             }
             uint8_t data_in = 0x00;
@@ -111,7 +109,7 @@ namespace openmc
                     {
                         break;
                     }
-                    // Abort if genuinely unselected
+                    // Abort if genuinely unselected (debounced)
                     if ((in1 & kSEL_Bitmask) && ConfirmUnselected())
                     {
                         last_abort_reason = (bitPos == 0) ? 2 : (10 + bitPos);
@@ -154,7 +152,7 @@ namespace openmc
                     {
                         break;
                     }
-                    // Abort if genuinely unselected
+                    // Abort if genuinely unselected (debounced)
                     if ((in1 & kSEL_Bitmask) && ConfirmUnselected())
                     {
                         last_abort_reason = 30 + bitPos;

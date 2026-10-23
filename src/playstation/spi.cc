@@ -25,9 +25,10 @@ namespace openmc
 
         void IRAM_ATTR ActiveMode()
         {
-            // Only enable MISO pin (ACK is open-drain, only driven during SendAck pulse)
-            REG_WRITE(GPIO_ENABLE1_W1TS_REG, kMISO_Bitmask);
-            REG_WRITE(GPIO_OUT1_W1TS_REG, kMISO_Bitmask);
+            // Enable MISO and ACK pins (Push-Pull 3.3V)
+            REG_WRITE(GPIO_ENABLE1_W1TS_REG, (kMISO_Bitmask | kACK_Bitmask));
+            // Set MISO and ACK pins HIGH
+            REG_WRITE(GPIO_OUT1_W1TS_REG, (kMISO_Bitmask | kACK_Bitmask));
         }
 
         void IRAM_ATTR Disable()
@@ -64,8 +65,10 @@ namespace openmc
 
         void IRAM_ATTR PassiveMode()
         {
-            // Disable MISO and ACK pins
+            // Disable MISO and ACK pins (Hi-Z)
             REG_WRITE(GPIO_ENABLE1_W1TC_REG, (kMISO_Bitmask | kACK_Bitmask));
+            // Clear outputs so they don't latch high
+            REG_WRITE(GPIO_OUT1_W1TC_REG, (kMISO_Bitmask | kACK_Bitmask));
         }
 
         uint32_t IRAM_ATTR InterruptHandler(uint32_t cause)
@@ -76,8 +79,8 @@ namespace openmc
             // Clear falling-edge interrupt status immediately upon entry
             REG_WRITE(GPIO_STATUS1_W1TC_REG, kSEL_Bitmask);
 
-            // Fast filter: if SEL is already HIGH upon entry, ignore phantom spike
-            if (GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask)
+            // Fast filter: if SEL is already confirmed HIGH upon entry, ignore phantom edge
+            if ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) && ConfirmUnselected())
             {
                 sio::memory_card::abort_byte0_count++;
                 (void)REG_READ(GPIO_STATUS1_REG);
@@ -108,9 +111,6 @@ namespace openmc
                 last_byte = SPDR;
             }
 
-            // Immediately resume Core 0 as soon as SPI loop finishes!
-            core0_stall_end();
-
             if (sio::current_command == openmc::sio::PS1_SIOCommands::Idle)
             {
                 sio::memory_card::abort_byte0_count++;
@@ -132,7 +132,7 @@ namespace openmc
             // If we exited early while SEL was still LOW, wait for it to return HIGH
             // (e.g. during a 9-byte Controller 1 packet from BlueRetro lasting ~400us)
             uint32_t wait_sel_ticks = 0;
-            while ((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) == 0)
+            while (!((GPIO_REG_READ(GPIO_IN1_REG) & kSEL_Bitmask) && ConfirmUnselected()))
             {
                 wait_sel_ticks++;
                 if (wait_sel_ticks >= 20000)
@@ -145,6 +145,8 @@ namespace openmc
             REG_WRITE(GPIO_STATUS1_W1TC_REG, REG_READ(GPIO_ACPU_INT1_REG));
             (void)REG_READ(GPIO_STATUS1_REG);
 
+            // Resume core0
+            core0_stall_end();
             return 0;
         }
 
