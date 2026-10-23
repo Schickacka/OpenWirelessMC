@@ -389,7 +389,6 @@ namespace openmc
           }
           break;
 
-        case 138:
         default:
           if (command_ticks >= 8 && command_ticks <= 135) //Stay here for 128 bytes
           {
@@ -407,10 +406,8 @@ namespace openmc
           }
           else
           {
-            // Real card: after 0x47 (tick 137), release the bus to Hi-Z and skip ACK
-            skip_ack = true;
-            data_out = Responses::kIdleHighZ;
-            spi::PassiveMode();
+            // Send this till the spooky extra bytes go away (echo 0x5C and send ACK)
+            data_out = Responses::kCommandAcknowledge1;
           }
           break;
         }
@@ -598,9 +595,7 @@ namespace openmc
           break;
 
         default:
-          skip_ack = true;
-          data_out = Responses::kIdleHighZ;
-          spi::PassiveMode();
+          data_out = Responses::kCommandAcknowledge1;
           break;
         }
 
@@ -648,11 +643,8 @@ namespace openmc
           trace_status = data_out;
           break;
 
-        case 8: // 00h
         default:
-          skip_ack = true;
-          data_out = Responses::kIdleHighZ;
-          spi::PassiveMode();
+          data_out = Responses::kCommandAcknowledge1;
           break;
         }
 
@@ -683,9 +675,7 @@ namespace openmc
           break;
 
         default:
-          skip_ack = true;
-          data_out = Responses::kIdleHighZ;
-          spi::PassiveMode();
+          data_out = Responses::kCommandAcknowledge1;
           break;
         }
 
