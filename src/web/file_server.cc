@@ -851,6 +851,16 @@ static bool IsFsPathAllowed(const char *rel_path)
     return false;
 }
 
+// Raizes que o firmware/script possuem: so saem vazias, nunca por remocao de
+// conteudo. Qualquer outra pasta de jogo sai quando nao tem cartao dentro.
+static bool IsProtectedFolder(const char *rel_path)
+{
+    return strcasecmp(rel_path, "MemoryCards") == 0 ||
+           strcasecmp(rel_path, "MemoryCards/PS1") == 0 ||
+           strcasecmp(rel_path, ".sd2psx") == 0 ||
+           strcasecmp(rel_path, "games") == 0;
+}
+
 /* Handler to upload a file onto the server */
             static esp_err_t upload_post_handler(httpd_req_t *req)
             {
@@ -1831,15 +1841,85 @@ static bool IsFsPathAllowed(const char *rel_path)
 
                 if (S_ISDIR(st.st_mode))
                 {
-                    // Pasta so sai vazia. Nunca apagar conteudo: as raizes
-                    // (MemoryCards, MemoryCards/PS1, .sd2psx, games) chegam aqui
-                    // pelo script de migracao apenas para remover diretorio que
-                    // ja esta vazio.
-                    if (rmdir(full_path) != 0)
+                    if (IsProtectedFolder(rel_path))
                     {
-                        httpd_resp_set_status(req, "400 Bad Request");
-                        httpd_resp_set_type(req, "application/json");
-                        return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Pasta nao esta vazia\"}");
+                        // Raizes: so saem vazias. Nunca apagar conteudo delas
+                        // (o script de migracao chega aqui para remover
+                        // diretorio que ja esta vazio).
+                        if (rmdir(full_path) != 0)
+                        {
+                            httpd_resp_set_status(req, "400 Bad Request");
+                            httpd_resp_set_type(req, "application/json");
+                            return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Pasta nao esta vazia\"}");
+                        }
+                    }
+                    else
+                    {
+                        // Pasta de jogo: sai quando NAO ha Memory Card dentro. Os
+                        // arquivos auxiliares (rotulos [ChannelName] .ini) sao
+                        // removidos junto, senao a pasta nunca mais seria
+                        // apagavel depois de o usuario excluir os cartoes.
+                        DIR *d = opendir(full_path);
+                        if (d == NULL)
+                        {
+                            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open directory");
+                            return ESP_FAIL;
+                        }
+                        bool has_card = false;
+                        bool has_subdir = false;
+                        char sub[512];
+                        struct dirent *de;
+                        while ((de = readdir(d)) != NULL)
+                        {
+                            if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
+                            {
+                                continue;
+                            }
+                            if (IS_FILE_EXT(de->d_name, ".mc") || IS_FILE_EXT(de->d_name, ".mcd") ||
+                                IS_FILE_EXT(de->d_name, ".mcr"))
+                            {
+                                has_card = true;
+                                break;
+                            }
+                            if (snprintf(sub, sizeof(sub), "%s/%s", full_path, de->d_name) < (int)sizeof(sub))
+                            {
+                                struct stat entry_st;
+                                if (stat(sub, &entry_st) == 0 && S_ISDIR(entry_st.st_mode))
+                                {
+                                    has_subdir = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (has_card || has_subdir)
+                        {
+                            closedir(d);
+                            httpd_resp_set_status(req, "400 Bad Request");
+                            httpd_resp_set_type(req, "application/json");
+                            return httpd_resp_sendstr(req,
+                                has_card
+                                    ? "{\"status\":\"error\",\"message\":\"Exclua os Memory Cards da pasta antes de remove-la\"}"
+                                    : "{\"status\":\"error\",\"message\":\"A pasta contem subpastas\"}");
+                        }
+                        rewinddir(d);
+                        while ((de = readdir(d)) != NULL)
+                        {
+                            if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
+                            {
+                                continue;
+                            }
+                            if (snprintf(sub, sizeof(sub), "%s/%s", full_path, de->d_name) < (int)sizeof(sub))
+                            {
+                                unlink(sub);
+                            }
+                        }
+                        closedir(d);
+                        if (rmdir(full_path) != 0)
+                        {
+                            httpd_resp_set_status(req, "400 Bad Request");
+                            httpd_resp_set_type(req, "application/json");
+                            return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Nao foi possivel remover a pasta\"}");
+                        }
                     }
                 }
                 else

@@ -20,7 +20,9 @@ O que mudou na 1.5.1 (sobre a 1.5.0)
   - /api/card/name valida a pasta e o canal (1..254).
   - /api/fs/* nao aceita mais *.mcd/*.ini/*.bak fora de MemoryCards/PS1,
     .sd2psx e games; cartao solto na raiz nao e criado pela API.
-  - /api/fs/delete so remove pasta VAZIA: nunca apaga o conteudo dela.
+  - /api/fs/delete remove a pasta quando nao ha Memory Card dentro (os
+    rotulos [ChannelName] vao junto). Com cartao dentro, recusa. As raizes
+    .sd2psx/MemoryCards so saem vazias: nunca perdem conteudo.
   - Upload por /api/fs/put nao bloqueia mais a gravacao dos saves do
     console enquanto o corpo e recebido.
   - /api/status conta os cartoes em MemoryCards/PS1 e informa a versao

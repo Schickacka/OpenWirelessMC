@@ -310,23 +310,33 @@ void test_32_api_fs_list_streaming_chunks()
 void test_33_api_fs_delete_directory_rules()
 {
   EnsureDirectoryPublic("games/test_del_dir");
-  char file_in_dir[kCardPathMax];
+  char file_in_dir[kCardPathMax], card_in_dir[kCardPathMax];
   snprintf(file_in_dir, sizeof(file_in_dir), "%s/games/test_del_dir/file.bin", base_path);
+  snprintf(card_in_dir, sizeof(card_in_dir), "%s/games/test_del_dir/test_del_dir-1.mcd", base_path);
   FILE *f = fopen(file_in_dir, "w");
   if (f) { fprintf(f, "x"); fclose(f); }
+  CreateBlankFormattedCard(card_in_dir);
 
   httpd_req_t req;
-  // Diretório com conteúdo -> 400
+  // Diretório com cartão dentro -> 400 (e o cartão continua lá)
   SetupMockReq(&req, "/api/fs/delete?path=games/test_del_dir", HTTP_POST);
   api_fs_delete_handler(&req);
   CHECK(strcmp(g_http_mock.last_status, "400 Bad Request") == 0);
+  struct stat st_card;
+  CHECK(stat(card_in_dir, &st_card) == 0);
 
-  // Remove arquivo interno
+  // Sem cartão, só arquivo auxiliar (rotulo/.bak) -> 200 e leva os auxiliares
+  unlink(card_in_dir);
+  SetupMockReq(&req, "/api/fs/delete?path=games/test_del_dir", HTTP_POST);
+  esp_err_t res = api_fs_delete_handler(&req);
+  CHECK(res == ESP_OK);
+  struct stat st_aux;
+  CHECK(stat(file_in_dir, &st_aux) != 0);
   unlink(file_in_dir);
 
   // Diretório vazio -> 200
   SetupMockReq(&req, "/api/fs/delete?path=games/test_del_dir", HTTP_POST);
-  esp_err_t res = api_fs_delete_handler(&req);
+  res = api_fs_delete_handler(&req);
   CHECK(res == ESP_OK);
 
   char dir_path[kCardPathMax];
@@ -473,6 +483,43 @@ void test_39_fs_delete_never_wipes_directory_contents()
   CHECK(stat(ini, &st) == 0);
 }
 
+
+// 40. Pasta de jogo sem cartao (so rotulos .ini) pode ser removida
+void test_40_delete_folder_without_cards()
+{
+  EnsureDirectoryPublic("MemoryCards/PS1/VAZIA");
+  CHECK(WriteFolderChannelName("VAZIA", "VAZIA", 1, "Rotulo"));
+  char ini[kCardPathMax], dir[kCardPathMax];
+  snprintf(dir, sizeof(dir), "%s/MemoryCards/PS1/VAZIA", base_path);
+  snprintf(ini, sizeof(ini), "%s/VAZIA.ini", dir);
+
+  struct stat st;
+  CHECK(stat(ini, &st) == 0);
+
+  httpd_req_t req;
+  SetupMockReq(&req, "/api/fs/delete?path=MemoryCards/PS1/VAZIA", HTTP_POST);
+  api_fs_delete_handler(&req);
+  CHECK(g_http_mock.error_code == 0);
+  CHECK(strstr(g_http_mock.response_body, "\"status\":\"ok\"") != NULL);
+  CHECK(stat(dir, &st) != 0);   // pasta removida
+  CHECK(stat(ini, &st) != 0);   // rotulo removido junto
+}
+
+// 41. Pasta com subpasta continua recusada
+void test_41_delete_folder_with_subdir_rejected()
+{
+  EnsureDirectoryPublic("MemoryCards/PS1/PAI/FILHO");
+  char dir[kCardPathMax];
+  snprintf(dir, sizeof(dir), "%s/MemoryCards/PS1/PAI", base_path);
+
+  httpd_req_t req;
+  SetupMockReq(&req, "/api/fs/delete?path=MemoryCards/PS1/PAI", HTTP_POST);
+  api_fs_delete_handler(&req);
+  CHECK(strcmp(g_http_mock.last_status, "400 Bad Request") == 0);
+  struct stat st;
+  CHECK(stat(dir, &st) == 0);
+}
+
 int main()
 {
   strcpy(base_path, "tests_sdcard");
@@ -500,6 +547,8 @@ int main()
   printf("t37\n"); fflush(stdout); test_37_rename_without_extension_appends_original();
   printf("t38\n"); fflush(stdout); test_38_card_name_rejects_invalid_folder();
   printf("t39\n"); fflush(stdout); test_39_fs_delete_never_wipes_directory_contents();
+  printf("t40\n"); fflush(stdout); test_40_delete_folder_without_cards();
+  printf("t41\n"); fflush(stdout); test_41_delete_folder_with_subdir_rejected();
   printf("All test_web tests passed successfully.\n");
   return 0;
 }
