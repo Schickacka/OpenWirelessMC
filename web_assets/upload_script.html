@@ -246,11 +246,15 @@ body {
   text-decoration: none;
 }
 .btn-blue {
-  background: var(--ps-blue);
-  color: #fff;
+  background: rgba(41, 121, 255, 0.15);
+  color: #64b5f6;
+  border: 1px solid var(--ps-blue);
+  padding: 6px 11px;
+  font-size: 12px;
 }
 .btn-blue:hover {
-  background: #1e60d4;
+  background: var(--ps-blue);
+  color: #fff;
   box-shadow: 0 0 10px rgba(41,121,255,0.4);
 }
 .btn-pink {
@@ -262,16 +266,15 @@ body {
   box-shadow: 0 0 10px rgba(255,64,129,0.4);
 }
 .btn-download {
-  background: rgba(41, 121, 255, 0.2);
+  background: rgba(41, 121, 255, 0.15);
   border: 1px solid var(--ps-blue);
-  color: #fff;
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 11px;
+  color: #64b5f6;
+  padding: 6px 11px;
+  font-size: 12px;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   text-decoration: none;
 }
 .btn-download:hover {
@@ -284,7 +287,7 @@ body {
   background: rgba(0,230,118,0.15);
   color: var(--ps-green);
   border: 1px solid var(--ps-green);
-  padding: 6px 10px;
+  padding: 6px 11px;
   font-size: 12px;
 }
 .btn-green:hover {
@@ -292,11 +295,23 @@ body {
   color: #000;
   box-shadow: 0 0 10px rgba(0,230,118,0.4);
 }
+.btn-purple {
+  background: rgba(187, 134, 252, 0.15);
+  color: #bb86fc;
+  border: 1px solid #bb86fc;
+  padding: 6px 11px;
+  font-size: 12px;
+}
+.btn-purple:hover {
+  background: #bb86fc;
+  color: #000;
+  box-shadow: 0 0 10px rgba(187, 134, 252, 0.4);
+}
 .btn-red {
   background: rgba(255,59,48,0.15);
   color: #ff6b6b;
   border: 1px solid rgba(255,59,48,0.4);
-  padding: 6px 10px;
+  padding: 6px 11px;
   font-size: 12px;
 }
 .btn-red:hover {
@@ -307,12 +322,12 @@ body {
 .btn-grey {
   background: rgba(255,255,255,0.08);
   color: #e2e8f0;
-  border: 1px solid var(--border);
-  padding: 6px 10px;
+  border: 1px solid rgba(255,255,255,0.25);
+  padding: 6px 11px;
   font-size: 12px;
 }
 .btn-grey:hover {
-  background: rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.22);
   color: #fff;
 }
 
@@ -380,6 +395,17 @@ body {
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
+}
+.actions-cell .btn {
+  height: 30px;
+  box-sizing: border-box;
+  padding: 6px 11px;
+  font-size: 12px;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
 }
 .path-nav {
   display: flex;

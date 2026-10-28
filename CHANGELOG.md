@@ -6,6 +6,27 @@ O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/p
 
 ---
 
+## [1.5.0] - 2026-10-28
+
+### Adicionado
+- **Duplicação de Cartões de Memória (`POST /api/card/duplicate`):** Duplicação atômica de arquivos de save de 128 KB em DRAM e MicroSD com incremento automático para o próximo canal livre (ex.: `Jogo-1.mcd` para `Jogo-2.mcd`), alocação segura em heap dinâmico e proteção de concorrência com `StorageLock`.
+- **Renomeação Direta e Segura de Arquivos (`POST /api/rename`):** Suporte à renomeação de imagens de Memory Card pela interface web, com validação de caminhos absolutos sob o cartão SD, retenção obrigatória de extensões permitidas (`.mc`, `.mcd`, `.mcr`), detecção de colisão de arquivos existentes e bloqueio contra renomeação do cartão atualmente em uso no console (`storage::loaded_file_path`).
+- **Criação e Montagem Automatizada de Cartões (`POST /api/card/create` e `/api/create`):** Criação de novos cartões virtuais com template oficial de fábrica Sony (sd2psX), resolução automática de pastas por título/GameID e alocação do primeiro canal livre.
+- **Filtro de Pastas na Interface Web:** Alternador de exibição de pastas na raiz de saves (`Todas as Pastas`, `Com Saves`, `Apenas Vazias`), permitindo auditoria visual rápida da estrutura do MicroSD.
+- **Contadores de Conteúdo por Diretório:** Exibição dinâmica da quantidade de cartões presentes dentro de cada pasta na listagem principal (`X cartões` ou `0 cartões` para pastas vazias).
+- **Migrador de Estrutura de SD (`tools/migrate_sd.py`):** Script de linha de comando para verificação, limpeza e migração do layout de pastas legado para a hierarquia estruturada `/MemoryCards/PS1/<Jogo>/`.
+- **Pacote de Distribuição v1.5:** Inclusão dos binários compilados (`firmware_v1.5.bin`, bootloader, partições dual-OTA) e pacote zip completo em `releases/v1.5_package/`.
+
+### Modificado
+- **Centralização da Navegação em `/MemoryCards/PS1/`:** Redirecionamento da raiz de visualização do gerenciador de saves para a pasta principal de jogos, ocultando a raiz técnica de arquivos do MicroSD e eliminando botões de navegação redundantes ("Raiz das Pastas").
+- **Ordenação Natural de Títulos (Natural Collation):** Extração limpa do nome do jogo antes de avaliar tags regionais como `(US)`, assegurando ordenação alfanumérica consistente de sequências e franquias (ex.: *Dino Crisis 1* listado antes de *Dino Crisis 2*).
+- **Padronização Visual da Interface:** Unificação de todos os botões de ação (Montar, Baixar, Duplicar, Renomear, Excluir) com altura fixa de 30 px, cantos arredondados consistentes, transparência moderna e alinhamento tipográfico.
+- **Tratamento Percent-Decode no Servidor HTTP:** Implementação de decodificação percentual de URIs (`web::PercentDecode`) nas rotas `/api/fs/delete` e `/api/fs/list`, resolvendo falhas de exclusão e listagem de diretórios ou arquivos contendo espaços e caracteres codificados (`%20`, `%2F`).
+- **Exclusão de Saves sem Interrupção Visual:** Transição do envio de formulário padrão para exclusão assíncrona via AJAX (`deleteCard()`) com notificação em tela (toast), eliminando o redirecionamento indesejado para páginas de resposta JSON bruta.
+- **Headroom de Memória e Pilha do Servidor Web:** Ampliação da pilha da tarefa do servidor HTTP para 10240 bytes e capacidade de até 36 rotas simultâneas em `file_server.cc`, prevenindo estouro de pilha durante operações intensivas de I/O em JSON.
+
+---
+
 ## [1.4.0] - 2026-10-21
 
 ### Corrigido

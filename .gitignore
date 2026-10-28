@@ -26,3 +26,9 @@ Desktop.ini
 
 # Backups intermediários
 releases/history/
+
+# Test artifacts
+tests_sdcard/
+tests/host/tests_sdcard/
+*.exe
+*.o

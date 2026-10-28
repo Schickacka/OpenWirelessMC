@@ -1,13 +1,13 @@
 #include "storage/storage.h"
 #include "storage/ps1_empty_card.h"
+#include "storage/parent_db.h"
+#include "storage/sdcard.h"
 
 #include "playstation/sio.h"
 #include "playstation/sio_memory_card.h"
 #include "playstation/spi.h"
 #include "pins.h"
-#include "storage/sdcard.h"
 #include "system/timer.h"
-
 #include "logging.h"
 
 #include <sdkconfig.h>
@@ -19,66 +19,60 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <ctype.h>
 #include <errno.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
-#define CARD_SIZE_BYTES (128 * 1024)
-#define CARD_SECTOR_COUNT 1024
-#define CARD_SECTOR_SIZE 128
-
-// A save is flushed to the SD card once the console has been quiet for this many SIO transactions
-// (~60 per second on NTSC, ~50 on PAL), or after kMaxDirtyMs even if traffic never stops.
 #define FLUSH_QUIET_TICKS 15
 #define FLUSH_MAX_DIRTY_MS 1000
 #define FLUSH_RETRY_DELAY_MS 3000
-
-// If default.mc is not a valid PS1 card image (wrong size, missing "MC"
-// signature or bad sector-0 checksum), move it aside and create a fresh one.
-// The 1.3 release shipped an all-zero default.mc; without this the console
-// showed "Card is not Formatted" even though the README promised a ready
-// "Boot Card". See CORRECOES-v1.4.md (C3).
-#ifndef MC_AUTO_REPAIR_DEFAULT_CARD
-#define MC_AUTO_REPAIR_DEFAULT_CARD 1
-#endif
 
 namespace openmc
 {
   namespace storage
   {
+    const char kCardsRoot[] = "MemoryCards/PS1";
+    const char kBootFolder[] = "BOOT";
+    const char kBootCardBase[] = "BootCard";
+    const char kGame2FolderDir[] = ".sd2psx";
+    const char kGame2FolderFile[] = ".sd2psx/Game2Folder.ini";
+    const char kUserCardsFolder[] = "UserCards";
+
     char loaded_file_path[CONFIG_FATFS_MAX_LFN + 1];
     char base_path[16];
     bool ready = false;
 
-    // Last sector_version[] value that is known to be on the SD card (storage side only).
-    static uint16_t saved_version[CARD_SECTOR_COUNT];
+    static uint16_t saved_version[kCardSectorCount];
+    SemaphoreHandle_t storage_mutex = NULL;
 
-    // The web server, the write task and the GameID switch all touch the card file and the RAM image.
-    static SemaphoreHandle_t storage_mutex = NULL;
+    static char pending_game_id[64] = {0};
 
-    class StorageLock
+    static void RememberPendingGameID(const char *game_id_str)
     {
-    public:
-      StorageLock()
+      if (game_id_str && game_id_str[0] != '\0')
       {
-        if (storage_mutex)
-        {
-          xSemaphoreTakeRecursive(storage_mutex, portMAX_DELAY);
-        }
+        strlcpy(pending_game_id, game_id_str, sizeof(pending_game_id));
+        ESP_LOGI(kLogPrefix, "RememberPendingGameID: saved '%s' for when SD is ready\n", pending_game_id);
       }
-      ~StorageLock()
+    }
+
+    static void ApplyPendingGameID()
+    {
+      if (pending_game_id[0] != '\0')
       {
-        if (storage_mutex)
-        {
-          xSemaphoreGiveRecursive(storage_mutex);
-        }
+        char gid[64];
+        strlcpy(gid, pending_game_id, sizeof(gid));
+        pending_game_id[0] = '\0';
+        ESP_LOGI(kLogPrefix, "ApplyPendingGameID: applying saved GameID '%s'\n", gid);
+        SwitchToGameID(gid);
       }
-    };
+    }
 
     static void MarkAllSectorsSaved()
     {
-      for (int i = 0; i < CARD_SECTOR_COUNT; i++)
+      for (size_t i = 0; i < kCardSectorCount; i++)
       {
         saved_version[i] = sio::memory_card::sector_version[i];
       }
@@ -87,7 +81,1214 @@ namespace openmc
     static TickType_t MsToTicks(uint32_t ms)
     {
       TickType_t ticks = pdMS_TO_TICKS(ms);
-      return ticks > 0 ? ticks : 1; // never 0: vTaskDelay(0) would busy-loop and starve the idle task
+      return ticks > 0 ? ticks : 1;
+    }
+
+    static bool MkdirP(const char *relative_path)
+    {
+      if (!relative_path || relative_path[0] == '\0')
+      {
+        return false;
+      }
+
+      char full_path[kCardPathMax];
+      snprintf(full_path, sizeof(full_path), "%s/%s", base_path, relative_path);
+
+      char temp[kCardPathMax];
+      size_t len = strlen(full_path);
+      if (len >= sizeof(temp))
+      {
+        return false;
+      }
+
+      strlcpy(temp, full_path, sizeof(temp));
+      for (size_t i = 1; i < len; i++)
+      {
+        if (temp[i] == '/')
+        {
+          temp[i] = '\0';
+          struct stat st;
+          if (stat(temp, &st) != 0)
+          {
+            if (mkdir(temp, 0755) != 0 && errno != EEXIST)
+            {
+              ESP_LOGE(kLogPrefix, "MkdirP failed on '%s' (errno %d)\n", temp, errno);
+              return false;
+            }
+          }
+          temp[i] = '/';
+        }
+      }
+
+      struct stat st;
+      if (stat(temp, &st) != 0)
+      {
+        if (mkdir(temp, 0755) != 0 && errno != EEXIST)
+        {
+          ESP_LOGE(kLogPrefix, "MkdirP failed on leaf '%s' (errno %d)\n", temp, errno);
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    bool EnsureDirectoryPublic(const char *rel_path)
+    {
+      return MkdirP(rel_path);
+    }
+
+    bool IsValidFolderName(const char *name)
+    {
+      if (!name || name[0] == '\0')
+      {
+        return false;
+      }
+      size_t len = strlen(name);
+      if (len > kMaxFolderNameLen)
+      {
+        return false;
+      }
+      if (name[0] == '.' || name[len - 1] == '.')
+      {
+        return false;
+      }
+      for (size_t i = 0; i < len; i++)
+      {
+        unsigned char c = (unsigned char)name[i];
+        if (!isalnum(c) && c != '.' && c != '_' && c != '-')
+        {
+          return false;
+        }
+      }
+
+      static const char *const kReservedNames[] = {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+      };
+      char base[16];
+      size_t base_len = strcspn(name, ".");
+      if (base_len < sizeof(base))
+      {
+        memcpy(base, name, base_len);
+        base[base_len] = '\0';
+        for (size_t i = 0; i < sizeof(kReservedNames) / sizeof(kReservedNames[0]); i++)
+        {
+          if (strcasecmp(base, kReservedNames[i]) == 0)
+          {
+            return false;
+          }
+        }
+      }
+
+      return true;
+    }
+
+    static bool EnsureCardsRoot()
+    {
+      char path[64];
+      snprintf(path, sizeof(path), "MemoryCards");
+      if (!MkdirP(path))
+      {
+        return false;
+      }
+      snprintf(path, sizeof(path), "%s", kCardsRoot);
+      return MkdirP(path);
+    }
+
+    static bool EnsureGameFolder(const char *folder)
+    {
+      if (!IsValidFolderName(folder))
+      {
+        return false;
+      }
+      char path[kCardPathMax];
+      snprintf(path, sizeof(path), "%s/%s", kCardsRoot, folder);
+      return MkdirP(path);
+    }
+
+    static bool ParseIniValue(const char *path, const char *section, const char *key, char *out_val, size_t out_len)
+    {
+      if (!path || !section || !key || !out_val || out_len == 0)
+      {
+        return false;
+      }
+
+      FILE *f = fopen(path, "r");
+      if (!f)
+      {
+        return false;
+      }
+
+      char line[256];
+      bool in_target_section = false;
+
+      while (fgets(line, sizeof(line), f))
+      {
+        char *p = line;
+        while (*p == ' ' || *p == '\t')
+        {
+          p++;
+        }
+        if (*p == '#' || *p == ';' || *p == '\r' || *p == '\n' || *p == '\0')
+        {
+          continue;
+        }
+
+        if (*p == '[')
+        {
+          char *end_sec = strchr(p, ']');
+          if (end_sec)
+          {
+            *end_sec = '\0';
+            in_target_section = (strcasecmp(p + 1, section) == 0);
+          }
+          continue;
+        }
+
+        if (!in_target_section)
+        {
+          continue;
+        }
+
+        char *eq = strchr(p, '=');
+        if (!eq)
+        {
+          continue;
+        }
+
+        char *k_end = eq - 1;
+        while (k_end >= p && (*k_end == ' ' || *k_end == '\t'))
+        {
+          *k_end = '\0';
+          k_end--;
+        }
+        *eq = '\0';
+
+        if (strcasecmp(p, key) == 0)
+        {
+          char *val = eq + 1;
+          while (*val == ' ' || *val == '\t')
+          {
+            val++;
+          }
+          size_t v_len = strcspn(val, "\r\n#;");
+          while (v_len > 0 && (val[v_len - 1] == ' ' || val[v_len - 1] == '\t'))
+          {
+            v_len--;
+          }
+          if (v_len > 0 && v_len < out_len)
+          {
+            memcpy(out_val, val, v_len);
+            out_val[v_len] = '\0';
+            fclose(f);
+            return true;
+          }
+        }
+      }
+
+      fclose(f);
+      return false;
+    }
+
+    bool ReadCardFolderOverride(const char *parent_id, char *out, size_t out_len)
+    {
+      if (!parent_id || !out || out_len == 0)
+      {
+        return false;
+      }
+      char ini_path[kCardPathMax];
+      snprintf(ini_path, sizeof(ini_path), "%s/%s", base_path, kGame2FolderFile);
+      return ParseIniValue(ini_path, "PS1", parent_id, out, out_len);
+    }
+
+    unsigned ReadFolderMaxChannels(const char *folder, const char *base_name)
+    {
+      if (!folder || !base_name)
+      {
+        return kDefaultMaxChannels;
+      }
+      char ini_path[kCardPathMax];
+      snprintf(ini_path, sizeof(ini_path), "%s/%s/%s/%s.ini", base_path, kCardsRoot, folder, base_name);
+
+      char val[16];
+      if (ParseIniValue(ini_path, "Settings", "MaxChannels", val, sizeof(val)))
+      {
+        char *endptr = NULL;
+        long parsed = strtol(val, &endptr, 10);
+        if (endptr != val && parsed >= 1 && parsed <= (long)kCardChannelMax)
+        {
+          return (unsigned)parsed;
+        }
+      }
+      return kDefaultMaxChannels;
+    }
+
+    bool ReadFolderChannelName(const char *folder, const char *base_name, unsigned channel, char *out, size_t out_len)
+    {
+      if (!folder || !base_name || !out || out_len == 0 || channel == 0)
+      {
+        return false;
+      }
+      char ini_path[kCardPathMax];
+      snprintf(ini_path, sizeof(ini_path), "%s/%s/%s/%s.ini", base_path, kCardsRoot, folder, base_name);
+
+      char key[16];
+      snprintf(key, sizeof(key), "%u", channel);
+      return ParseIniValue(ini_path, "ChannelName", key, out, out_len);
+    }
+
+    bool WriteFolderChannelName(const char *folder, const char *base_name, unsigned channel, const char *name)
+    {
+      if (!folder || !base_name || channel == 0 || !name)
+      {
+        return false;
+      }
+
+      char clean_name[128];
+      size_t cn = 0;
+      for (size_t i = 0; name[i] != '\0' && cn < sizeof(clean_name) - 1; i++)
+      {
+        if (name[i] != '\r' && name[i] != '\n')
+        {
+          clean_name[cn++] = name[i];
+        }
+      }
+      clean_name[cn] = '\0';
+
+      char ini_path[kCardPathMax];
+      snprintf(ini_path, sizeof(ini_path), "%s/%s/%s/%s.ini", base_path, kCardsRoot, folder, base_name);
+
+      struct stat st;
+      if (stat(ini_path, &st) == 0 && st.st_size > 4096)
+      {
+        return false;
+      }
+
+      char temp_path[kCardPathMax + 8];
+      snprintf(temp_path, sizeof(temp_path), "%s.tmp", ini_path);
+
+      FILE *in = fopen(ini_path, "r");
+      FILE *out = fopen(temp_path, "w");
+      if (!out)
+      {
+        if (in) fclose(in);
+        return false;
+      }
+
+      char line[256];
+      bool in_channel_name = false;
+      bool channel_name_section_seen = false;
+      bool channel_written = false;
+      char target_key[16];
+      snprintf(target_key, sizeof(target_key), "%u", channel);
+
+      if (in)
+      {
+        while (fgets(line, sizeof(line), in))
+        {
+          char *p = line;
+          while (*p == ' ' || *p == '\t') p++;
+          if (*p == '[')
+          {
+            if (in_channel_name && !channel_written)
+            {
+              fprintf(out, "%u=%s\n", channel, clean_name);
+              channel_written = true;
+            }
+            char *end_sec = strchr(p, ']');
+            if (end_sec)
+            {
+              *end_sec = '\0';
+              if (strcasecmp(p + 1, "ChannelName") == 0)
+              {
+                if (channel_name_section_seen)
+                {
+                  in_channel_name = true;
+                  continue;
+                }
+                channel_name_section_seen = true;
+                in_channel_name = true;
+              }
+              else
+              {
+                in_channel_name = false;
+              }
+              *end_sec = ']';
+            }
+            fputs(line, out);
+          }
+          else if (in_channel_name)
+          {
+            char *eq = strchr(p, '=');
+            if (eq)
+            {
+              *eq = '\0';
+              char *k = p;
+              while (*k == ' ' || *k == '\t') k++;
+              if (strcasecmp(k, target_key) == 0)
+              {
+                if (!channel_written)
+                {
+                  fprintf(out, "%u=%s\n", channel, clean_name);
+                  channel_written = true;
+                }
+                continue;
+              }
+              *eq = '=';
+            }
+            fputs(line, out);
+          }
+          else
+          {
+            fputs(line, out);
+          }
+        }
+        fclose(in);
+      }
+
+      if (!channel_written)
+      {
+        if (!channel_name_section_seen)
+        {
+          fprintf(out, "\n[ChannelName]\n");
+        }
+        fprintf(out, "%u=%s\n", channel, clean_name);
+      }
+
+      fflush(out);
+      fsync(fileno(out));
+      fclose(out);
+
+      char bak_path[kCardPathMax + 8];
+      snprintf(bak_path, sizeof(bak_path), "%s.bak", ini_path);
+      unlink(bak_path);
+      bool dest_existed = (stat(ini_path, &st) == 0);
+      if (dest_existed)
+      {
+        rename(ini_path, bak_path);
+      }
+      if (rename(temp_path, ini_path) != 0)
+      {
+        unlink(temp_path);
+        if (dest_existed)
+        {
+          rename(bak_path, ini_path);
+        }
+        return false;
+      }
+      if (dest_existed)
+      {
+        unlink(bak_path);
+      }
+      return true;
+    }
+
+    bool RemoveFolderChannelName(const char *folder, const char *base_name, unsigned channel)
+    {
+      if (!folder || !base_name || channel == 0)
+      {
+        return false;
+      }
+
+      char ini_path[kCardPathMax];
+      snprintf(ini_path, sizeof(ini_path), "%s/%s/%s/%s.ini", base_path, kCardsRoot, folder, base_name);
+
+      struct stat st;
+      if (stat(ini_path, &st) != 0)
+      {
+        return true;
+      }
+      if (st.st_size > 4096)
+      {
+        return false;
+      }
+
+      char temp_path[kCardPathMax + 8];
+      snprintf(temp_path, sizeof(temp_path), "%s.tmp", ini_path);
+
+      FILE *in = fopen(ini_path, "r");
+      if (!in)
+      {
+        return true;
+      }
+
+      FILE *out = fopen(temp_path, "w");
+      if (!out)
+      {
+        fclose(in);
+        return false;
+      }
+
+      char line[256];
+      bool in_channel_name = false;
+      char target_key[16];
+      snprintf(target_key, sizeof(target_key), "%u", channel);
+
+      while (fgets(line, sizeof(line), in))
+      {
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '[')
+        {
+          char *end_sec = strchr(p, ']');
+          if (end_sec)
+          {
+            *end_sec = '\0';
+            in_channel_name = (strcasecmp(p + 1, "ChannelName") == 0);
+            *end_sec = ']';
+          }
+        }
+        else if (in_channel_name)
+        {
+          char *eq = strchr(p, '=');
+          if (eq)
+          {
+            *eq = '\0';
+            char *k = p;
+            while (*k == ' ' || *k == '\t') k++;
+            if (strcasecmp(k, target_key) == 0)
+            {
+              continue;
+            }
+            *eq = '=';
+          }
+        }
+        fputs(line, out);
+      }
+
+      fclose(in);
+      fflush(out);
+      fsync(fileno(out));
+      fclose(out);
+
+      char bak_path[kCardPathMax + 8];
+      snprintf(bak_path, sizeof(bak_path), "%s.bak", ini_path);
+      unlink(bak_path);
+      if (rename(ini_path, bak_path) == 0)
+      {
+        if (rename(temp_path, ini_path) != 0)
+        {
+          unlink(temp_path);
+          rename(bak_path, ini_path);
+          return false;
+        }
+        unlink(bak_path);
+      }
+      else
+      {
+        unlink(temp_path);
+        return false;
+      }
+      return true;
+    }
+
+    static bool ResolveCardFolder(const char *normalized_id, char *out_folder, size_t out_len,
+                                  bool *out_has_parent, bool *out_has_override)
+    {
+      if (!normalized_id || !out_folder || out_len == 0)
+      {
+        return false;
+      }
+
+      const char *parent = FindParentGameID(normalized_id);
+      const char *effective_parent = parent ? parent : normalized_id;
+      if (out_has_parent)
+      {
+        *out_has_parent = (parent != NULL);
+      }
+
+      char override_folder[64];
+      if (ReadCardFolderOverride(effective_parent, override_folder, sizeof(override_folder)))
+      {
+        if (out_has_override)
+        {
+          *out_has_override = true;
+        }
+        strlcpy(out_folder, override_folder, out_len);
+      }
+      else
+      {
+        if (out_has_override)
+        {
+          *out_has_override = false;
+        }
+        strlcpy(out_folder, effective_parent, out_len);
+      }
+
+      return IsValidFolderName(out_folder);
+    }
+
+    bool ResolveGameFolder(const char *normalized_id, char *out_folder, size_t out_len,
+                           bool *out_has_parent, bool *out_has_override)
+    {
+      return ResolveCardFolder(normalized_id, out_folder, out_len, out_has_parent, out_has_override);
+    }
+
+    static bool BuildGameCardPath(const char *folder, unsigned channel, const char *ext, char *out, size_t out_len)
+    {
+      if (!folder || !ext || !out || out_len == 0)
+      {
+        return false;
+      }
+      int written = snprintf(out, out_len, "%s/%s/%s/%s-%u%s",
+                             base_path, kCardsRoot, folder, folder, channel, ext);
+      return (written > 0 && (size_t)written < out_len);
+    }
+
+    static bool BuildBootCardPath(unsigned channel, char *out, size_t out_len)
+    {
+      if (!out || out_len == 0)
+      {
+        return false;
+      }
+      int written = snprintf(out, out_len, "%s/%s/%s/%s-%u.mcd",
+                             base_path, kCardsRoot, kBootFolder, kBootCardBase, channel);
+      return (written > 0 && (size_t)written < out_len);
+    }
+
+    static bool FindGameCard(const char *id, const char *folder, unsigned channel, char *out_path, size_t out_len)
+    {
+      (void)id;
+      if (!BuildGameCardPath(folder, channel, ".mcd", out_path, out_len))
+      {
+        return false;
+      }
+      struct stat st;
+      return (stat(out_path, &st) == 0 && st.st_size == (off_t)kCardSizeBytes);
+    }
+
+    static bool IsValidCardImage(const char *path)
+    {
+      struct stat st;
+      if (stat(path, &st) != 0 || st.st_size != (off_t)kCardSizeBytes)
+      {
+        return false;
+      }
+
+      FILE *f = fopen(path, "rb");
+      if (!f)
+      {
+        return false;
+      }
+
+      uint8_t header[kCardSectorSize];
+      size_t got = fread(header, 1, sizeof(header), f);
+      fclose(f);
+      if (got != sizeof(header))
+      {
+        return false;
+      }
+
+      if (header[0] != 'M' || header[1] != 'C')
+      {
+        return false;
+      }
+
+      uint8_t checksum = 0;
+      for (size_t i = 0; i < sizeof(header) - 1; i++)
+      {
+        checksum ^= header[i];
+      }
+      return checksum == header[sizeof(header) - 1];
+    }
+
+    static bool LoadCardImpl(const char *filepath, void *destination, uint32_t settle_ms)
+    {
+      StorageLock lock;
+
+      char path[CONFIG_FATFS_MAX_LFN + 1];
+      strlcpy(path, filepath, sizeof(path));
+
+      uint8_t *dest = destination ? (uint8_t *)destination : sio::memory_card::memory_card_ram;
+
+      ESP_LOGI(kLogPrefix, "LoadCardFromFile(%s)\n", path);
+
+      struct stat st;
+      if (stat(path, &st) != 0)
+      {
+        ESP_LOGE(kLogPrefix, "Error opening file!\n");
+        return false;
+      }
+      if (st.st_size != (off_t)kCardSizeBytes)
+      {
+        ESP_LOGE(kLogPrefix, "Invalid file size (%ld bytes, expected %d)!\n", (long)st.st_size, (int)kCardSizeBytes);
+        return false;
+      }
+
+      FILE *f = fopen(path, "rb");
+      if (!f)
+      {
+        ESP_LOGE(kLogPrefix, "Error opening file!\n");
+        return false;
+      }
+
+      if (!FlushPending())
+      {
+        ESP_LOGE(kLogPrefix, "Could not save the current card; keeping it mounted.\n");
+        fclose(f);
+        return false;
+      }
+
+      sio::SetMemoryCardEmulation(false);
+      if (settle_ms > 0)
+      {
+        vTaskDelay(MsToTicks(settle_ms));
+      }
+
+      size_t got = fread(dest, 1, kCardSizeBytes, f);
+      fclose(f);
+
+      if (got != kCardSizeBytes)
+      {
+        ESP_LOGE(kLogPrefix, "Short read (%u bytes)! Card unloaded.\n", (unsigned)got);
+        loaded_file_path[0] = '\0';
+        sio::memory_card::committed_to_storage = true;
+        return false;
+      }
+
+      strlcpy(loaded_file_path, path, sizeof(loaded_file_path));
+      MarkAllSectorsSaved();
+
+      sio::memory_card::flag = sio::memory_card::Flags::kDirectoryUnread;
+      sio::memory_card::GoIdle();
+      sio::memory_card::last_write_tick = sio::event_ticks;
+      sio::memory_card::committed_to_storage = true;
+
+      sio::SetMemoryCardEmulation(true);
+
+      return true;
+    }
+
+    bool LoadCardFromFile(char *filepath, void *destination)
+    {
+      return LoadCardImpl(filepath, destination, 250);
+    }
+
+    bool CreateBlankFormattedCard(const char *filepath)
+    {
+      ESP_LOGI(kLogPrefix, "Creating new blank formatted memory card: %s\n", filepath);
+      FILE *f = fopen(filepath, "wb");
+      if (!f)
+      {
+        ESP_LOGE(kLogPrefix, "Failed to create new card file: %s\n", filepath);
+        return false;
+      }
+
+      bool ok = true;
+      if (fwrite(ps1_empty_card, 1, sizeof(ps1_empty_card), f) != sizeof(ps1_empty_card))
+      {
+        ok = false;
+      }
+
+      uint8_t buffer[kCardSectorSize];
+      memset(buffer, 0xFF, sizeof(buffer));
+      for (int i = (int)(sizeof(ps1_empty_card) / kCardSectorSize); ok && i < (int)kCardSectorCount; i++)
+      {
+        if (fwrite(buffer, 1, sizeof(buffer), f) != sizeof(buffer))
+        {
+          ok = false;
+        }
+      }
+
+      if (ok && fflush(f) != 0)
+      {
+        ok = false;
+      }
+      if (ok)
+      {
+        fsync(fileno(f));
+      }
+      if (fclose(f) != 0)
+      {
+        ok = false;
+      }
+
+      if (!ok)
+      {
+        ESP_LOGE(kLogPrefix, "Failed to write new card file: %s\n", filepath);
+        unlink(filepath);
+        return false;
+      }
+
+      ESP_LOGI(kLogPrefix, "New formatted card created successfully!\n");
+      return true;
+    }
+
+    int WriteFile()
+    {
+      StorageLock lock;
+
+      if (loaded_file_path[0] == '\0')
+      {
+        ESP_LOGE(kLogPrefix, "No file loaded, abort write\n");
+        return -4;
+      }
+
+      uint32_t write_start_time = (uint32_t)system::timer::timestamp;
+
+      FILE *f = fopen(loaded_file_path, "r+b");
+      if (!f)
+      {
+        f = fopen(loaded_file_path, "wb");
+        if (!f)
+        {
+          ESP_LOGE(kLogPrefix, "Error opening file %s (errno %d)\n", loaded_file_path, errno);
+          return -1;
+        }
+        for (size_t i = 0; i < kCardSectorCount; i++)
+        {
+          saved_version[i] = (uint16_t)(sio::memory_card::sector_version[i] - 1);
+        }
+      }
+
+      int result = 0;
+      int sectors_written = 0;
+      uint8_t sector_buffer[kCardSectorSize];
+
+      for (size_t s = 0; s < kCardSectorCount; s++)
+      {
+        uint16_t version = sio::memory_card::sector_version[s];
+        if (version == saved_version[s])
+        {
+          continue;
+        }
+
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+          version = sio::memory_card::sector_version[s];
+          memcpy(sector_buffer, &sio::memory_card::memory_card_ram[s * kCardSectorSize], kCardSectorSize);
+          if (version == sio::memory_card::sector_version[s])
+          {
+            break;
+          }
+        }
+
+        if (fseek(f, (long)s * kCardSectorSize, SEEK_SET) != 0 ||
+            fwrite(sector_buffer, 1, kCardSectorSize, f) != kCardSectorSize)
+        {
+          ESP_LOGE(kLogPrefix, "Error writing sector %d (errno %d)\n", (int)s, errno);
+          result = -2;
+          break;
+        }
+
+        saved_version[s] = version;
+        sectors_written++;
+      }
+
+      if (result == 0 && fflush(f) != 0)
+      {
+        result = -3;
+      }
+      if (result == 0)
+      {
+        fsync(fileno(f));
+      }
+      if (fclose(f) != 0 && result == 0)
+      {
+        result = -3;
+      }
+
+      if (result == 0)
+      {
+        ESP_LOGI(kLogPrefix, "Saved %d sector(s) to %s in %ims\n", sectors_written, loaded_file_path,
+                 (int)((uint32_t)system::timer::timestamp - write_start_time));
+      }
+      else
+      {
+        ESP_LOGE(kLogPrefix, "WriteFile failed (%d)\n", result);
+      }
+
+      return result;
+    }
+
+    bool FlushPending()
+    {
+      StorageLock lock;
+
+      if (sio::memory_card::committed_to_storage)
+      {
+        return true;
+      }
+
+      if (!ready || loaded_file_path[0] == '\0')
+      {
+        sio::memory_card::committed_to_storage = true;
+        return true;
+      }
+
+      sio::memory_card::committed_to_storage = true;
+      if (WriteFile() == 0)
+      {
+        return true;
+      }
+
+      sio::memory_card::committed_to_storage = false;
+      return false;
+    }
+
+    bool MountBootCard(uint32_t settle_ms)
+    {
+      char boot_path[kCardPathMax];
+      BuildBootCardPath(1, boot_path, sizeof(boot_path));
+
+      struct stat st;
+      if (stat(boot_path, &st) == 0 && st.st_size == (off_t)kCardSizeBytes)
+      {
+        if (IsValidCardImage(boot_path))
+        {
+          return LoadCardImpl(boot_path, sio::memory_card::memory_card_ram, settle_ms);
+        }
+      }
+
+      char legacy_boot[kCardPathMax];
+      snprintf(legacy_boot, sizeof(legacy_boot), "%s/%s/%s/%s.mcd",
+               base_path, kCardsRoot, kBootFolder, kBootCardBase);
+      if (stat(legacy_boot, &st) == 0 && st.st_size == (off_t)kCardSizeBytes)
+      {
+        if (IsValidCardImage(legacy_boot))
+        {
+          return LoadCardImpl(legacy_boot, sio::memory_card::memory_card_ram, settle_ms);
+        }
+      }
+
+      char boot_dir[kCardPathMax];
+      snprintf(boot_dir, sizeof(boot_dir), "%s/%s", kCardsRoot, kBootFolder);
+      if (!MkdirP(boot_dir))
+      {
+        ESP_LOGE(kLogPrefix, "MountBootCard: failed to create BOOT directory\n");
+        return false;
+      }
+
+      if (!CreateBlankFormattedCard(boot_path))
+      {
+        ESP_LOGE(kLogPrefix, "MountBootCard: failed to create BootCard-1.mcd\n");
+        return false;
+      }
+
+      return LoadCardImpl(boot_path, sio::memory_card::memory_card_ram, settle_ms);
+    }
+
+    bool MountCardChannel(const char *folder, unsigned channel)
+    {
+      if (!ready || !folder || !IsValidFolderName(folder))
+      {
+        return false;
+      }
+
+      unsigned max_channels = ReadFolderMaxChannels(folder, folder);
+      if (channel < kCardChannelMin || channel > max_channels || channel > kCardChannelMax)
+      {
+        ESP_LOGW(kLogPrefix, "MountCardChannel: channel %u out of bounds (1..%u)\n", channel, max_channels);
+        return false;
+      }
+
+      StorageLock lock;
+
+      char target_path[kCardPathMax];
+      if (!BuildGameCardPath(folder, channel, ".mcd", target_path, sizeof(target_path)))
+      {
+        return false;
+      }
+
+      struct stat st;
+      if (stat(target_path, &st) != 0)
+      {
+        if (!EnsureGameFolder(folder))
+        {
+          return false;
+        }
+        if (!CreateBlankFormattedCard(target_path))
+        {
+          return false;
+        }
+      }
+
+      return LoadCardFromFile(target_path, sio::memory_card::memory_card_ram);
+    }
+
+    LegacyProbeResult ProbeLegacyLayout(void)
+    {
+      LegacyProbeResult r;
+      struct stat st;
+      char path[kCardPathMax];
+
+      snprintf(path, sizeof(path), "%s/games", base_path);
+      r.games_dir = (stat(path, &st) == 0 && S_ISDIR(st.st_mode));
+
+      snprintf(path, sizeof(path), "%s/default.mc", base_path);
+      r.default_mc = (stat(path, &st) == 0 && S_ISREG(st.st_mode));
+
+      snprintf(path, sizeof(path), "%s/Game2Folder.ini", base_path);
+      r.root_game2folder = (stat(path, &st) == 0 && S_ISREG(st.st_mode));
+
+      snprintf(path, sizeof(path), "%s/multidisc.txt", base_path);
+      r.multidisc_txt = (stat(path, &st) == 0 && S_ISREG(st.st_mode));
+
+      r.detected = (r.games_dir || r.default_mc || r.root_game2folder || r.multidisc_txt);
+
+      return r;
+    }
+
+    bool NormalizeGameID(const char *raw_id, char *out, size_t out_len)
+    {
+      if (!raw_id || !out || out_len < 16)
+      {
+        return false;
+      }
+
+      const char *p = raw_id;
+      while (*p)
+      {
+        if (isalpha((unsigned char)p[0]) && isalpha((unsigned char)p[1]) &&
+            isalpha((unsigned char)p[2]) && isalpha((unsigned char)p[3]))
+        {
+          char prefix[5];
+          prefix[0] = (char)toupper((unsigned char)p[0]);
+          prefix[1] = (char)toupper((unsigned char)p[1]);
+          prefix[2] = (char)toupper((unsigned char)p[2]);
+          prefix[3] = (char)toupper((unsigned char)p[3]);
+          prefix[4] = '\0';
+
+          const char *digits = p + 4;
+          while (*digits == '_' || *digits == '-' || *digits == ' ')
+          {
+            digits++;
+          }
+
+          char num[16];
+          size_t num_len = 0;
+          while (*digits && num_len < sizeof(num) - 1)
+          {
+            if (isdigit((unsigned char)*digits))
+            {
+              num[num_len++] = *digits;
+            }
+            else if (*digits != '.')
+            {
+              break;
+            }
+            digits++;
+          }
+          num[num_len] = '\0';
+
+          if (num_len >= 3)
+          {
+            snprintf(out, out_len, "%s-%s", prefix, num);
+            return true;
+          }
+        }
+        p++;
+      }
+      return false;
+    }
+
+    bool CreateGameCardForID(const char *raw_id, unsigned channel,
+                             char *out_path, size_t out_path_len,
+                             char *out_folder, size_t out_folder_len,
+                             bool *out_exists)
+    {
+      if (!raw_id || !out_path || !out_folder || !out_exists)
+      {
+        return false;
+      }
+
+      *out_exists = false;
+      char clean_id[64];
+      if (!NormalizeGameID(raw_id, clean_id, sizeof(clean_id)))
+      {
+        return false;
+      }
+
+      char folder[64];
+      if (!ResolveCardFolder(clean_id, folder, sizeof(folder), NULL, NULL))
+      {
+        return false;
+      }
+      strlcpy(out_folder, folder, out_folder_len);
+
+      unsigned max_channels = ReadFolderMaxChannels(folder, folder);
+      if (channel < kCardChannelMin || channel > max_channels || channel > kCardChannelMax)
+      {
+        return false;
+      }
+
+      if (!EnsureGameFolder(folder))
+      {
+        return false;
+      }
+
+      if (!BuildGameCardPath(folder, channel, ".mcd", out_path, out_path_len))
+      {
+        return false;
+      }
+
+      struct stat st;
+      if (stat(out_path, &st) == 0 && st.st_size == (off_t)kCardSizeBytes)
+      {
+        *out_exists = true;
+        return true;
+      }
+
+      return CreateBlankFormattedCard(out_path);
+    }
+
+    bool SwitchToGameID(const char *game_id_str)
+    {
+      if (!game_id_str || game_id_str[0] == '\0')
+      {
+        return false;
+      }
+
+      if (!ready)
+      {
+        RememberPendingGameID(game_id_str);
+        return false;
+      }
+
+      StorageLock lock;
+
+      char clean_id[64];
+      if (!NormalizeGameID(game_id_str, clean_id, sizeof(clean_id)))
+      {
+        ESP_LOGW(kLogPrefix, "SwitchToGameID: Non-standard GameID '%s', ignored.\n", game_id_str);
+        return false;
+      }
+
+      char folder[64];
+      if (!ResolveCardFolder(clean_id, folder, sizeof(folder), NULL, NULL))
+      {
+        ESP_LOGE(kLogPrefix, "SwitchToGameID: Failed to resolve folder for '%s'\n", clean_id);
+        return false;
+      }
+
+      char target_path[kCardPathMax];
+      if (!FindGameCard(clean_id, folder, 1, target_path, sizeof(target_path)))
+      {
+        if (!EnsureGameFolder(folder))
+        {
+          return false;
+        }
+        if (!BuildGameCardPath(folder, 1, ".mcd", target_path, sizeof(target_path)))
+        {
+          return false;
+        }
+        if (!CreateBlankFormattedCard(target_path))
+        {
+          ESP_LOGE(kLogPrefix, "SwitchToGameID: could not create '%s'\n", target_path);
+          return false;
+        }
+      }
+
+      if (strcasecmp(loaded_file_path, target_path) == 0)
+      {
+        sio::SetMemoryCardEmulation(false);
+        vTaskDelay(pdMS_TO_TICKS(250));
+        sio::memory_card::flag = sio::memory_card::Flags::kDirectoryUnread;
+        sio::memory_card::GoIdle();
+        sio::SetMemoryCardEmulation(true);
+        return true;
+      }
+
+      return LoadCardFromFile(target_path, sio::memory_card::memory_card_ram);
+    }
+
+    bool PlaceUserCard(const char *from_folder, unsigned from_channel,
+                       const char *target_folder,
+                       char *out_path, size_t out_path_len, unsigned *out_channel)
+    {
+      if (!ready || !from_folder || !target_folder || !out_path || !out_channel)
+      {
+        return false;
+      }
+      if (!IsValidFolderName(from_folder) || !IsValidFolderName(target_folder))
+      {
+        return false;
+      }
+
+      StorageLock lock;
+
+      if (!FlushPending())
+      {
+        ESP_LOGE(kLogPrefix, "PlaceUserCard: FlushPending failed\n");
+        return false;
+      }
+
+      char src_path[kCardPathMax];
+      if (!BuildGameCardPath(from_folder, from_channel, ".mcd", src_path, sizeof(src_path)))
+      {
+        return false;
+      }
+
+      struct stat st;
+      if (stat(src_path, &st) != 0 || st.st_size != (off_t)kCardSizeBytes)
+      {
+        return false;
+      }
+
+      if (!EnsureGameFolder(target_folder))
+      {
+        return false;
+      }
+
+      unsigned max_channels = ReadFolderMaxChannels(target_folder, target_folder);
+      unsigned target_ch = 0;
+      char dst_path[kCardPathMax];
+
+      for (unsigned ch = kCardChannelMin; ch <= max_channels; ch++)
+      {
+        if (BuildGameCardPath(target_folder, ch, ".mcd", dst_path, sizeof(dst_path)))
+        {
+          if (stat(dst_path, &st) != 0)
+          {
+            target_ch = ch;
+            break;
+          }
+        }
+      }
+
+      if (target_ch == 0)
+      {
+        ESP_LOGE(kLogPrefix, "PlaceUserCard: no free channel in '%s' (max %u)\n", target_folder, max_channels);
+        return false;
+      }
+
+      char card_name[128];
+      bool has_name = ReadFolderChannelName(from_folder, from_folder, from_channel, card_name, sizeof(card_name));
+
+      bool was_mounted = (strcasecmp(loaded_file_path, src_path) == 0);
+      if (was_mounted)
+      {
+        FlushPending();
+        sio::SetMemoryCardEmulation(false);
+      }
+
+      if (rename(src_path, dst_path) != 0)
+      {
+        ESP_LOGE(kLogPrefix, "PlaceUserCard: rename failed from '%s' to '%s' (errno %d)\n",
+                 src_path, dst_path, errno);
+        if (was_mounted)
+        {
+          sio::SetMemoryCardEmulation(true);
+        }
+        return false;
+      }
+
+      if (has_name)
+      {
+        WriteFolderChannelName(target_folder, target_folder, target_ch, card_name);
+      }
+      RemoveFolderChannelName(from_folder, from_folder, from_channel);
+
+      if (was_mounted)
+      {
+        LoadCardImpl(dst_path, sio::memory_card::memory_card_ram, 250);
+      }
+
+      strlcpy(out_path, dst_path, out_path_len);
+      *out_channel = target_ch;
+      return true;
     }
 
     void Task_Write(void *params)
@@ -102,7 +1303,6 @@ namespace openmc
       {
         bool dirty = (sio::memory_card::committed_to_storage == false);
 
-        // LED = "card image has changes that are not on the SD card yet"
         if (dirty != led_on)
         {
           led_on = dirty;
@@ -117,13 +1317,11 @@ namespace openmc
             dirty_since_ms = (now_ms != 0) ? now_ms : 1;
           }
 
-          // Quiet = the console stopped writing. event_ticks counts SIO transactions (pad polls included).
           bool quiet = (sio::event_ticks - sio::memory_card::last_write_tick) >= FLUSH_QUIET_TICKS;
           bool too_long = (now_ms - dirty_since_ms) >= FLUSH_MAX_DIRTY_MS;
 
           if (!ready || loaded_file_path[0] == '\0')
           {
-            // Nowhere to save to (SD ejected or card unloaded): do not retry forever
             sio::memory_card::committed_to_storage = true;
             dirty_since_ms = 0;
           }
@@ -136,7 +1334,6 @@ namespace openmc
             }
             else
             {
-              // Keep the data (and the dirty flag): it is saved as soon as the SD card works again
               if (write_fail_count < 255)
               {
                 write_fail_count++;
@@ -188,574 +1385,6 @@ namespace openmc
       vTaskDelete(NULL);
     }
 
-    bool CreateBlankFormattedCard(const char *filepath)
-    {
-      ESP_LOGI(kLogPrefix, "Creating new blank formatted memory card: %s\n", filepath);
-      FILE *f = fopen(filepath, "wb");
-      if (!f)
-      {
-        ESP_LOGE(kLogPrefix, "Failed to create new card file: %s\n", filepath);
-        return false;
-      }
-
-      bool ok = true;
-
-      // Block 0 (8192 bytes = 64 frames): Sony's template (from sd2psX)
-      if (fwrite(ps1_empty_card, 1, sizeof(ps1_empty_card), f) != sizeof(ps1_empty_card))
-      {
-        ok = false;
-      }
-
-      // Blocks 1 to 15 (960 frames) filled with 0xFF
-      uint8_t buffer[CARD_SECTOR_SIZE];
-      memset(buffer, 0xFF, sizeof(buffer));
-      for (int i = (int)(sizeof(ps1_empty_card) / CARD_SECTOR_SIZE); ok && i < CARD_SECTOR_COUNT; i++)
-      {
-        if (fwrite(buffer, 1, sizeof(buffer), f) != sizeof(buffer))
-        {
-          ok = false;
-        }
-      }
-
-      if (ok && fflush(f) != 0)
-      {
-        ok = false;
-      }
-      if (ok)
-      {
-        fsync(fileno(f));
-      }
-      if (fclose(f) != 0)
-      {
-        ok = false;
-      }
-
-      if (!ok)
-      {
-        ESP_LOGE(kLogPrefix, "Failed to write new card file (SD full or error): %s\n", filepath);
-        unlink(filepath); // never leave a truncated card behind
-        return false;
-      }
-
-      ESP_LOGI(kLogPrefix, "New formatted card created successfully!\n");
-      return true;
-    }
-
-    // Writes only the sectors the console changed since the last save, in place.
-    // Compared with rewriting the whole 128 KB file (which truncated it first):
-    //  - a power cut mid-write can only affect the sectors being written, not the whole card;
-    //  - it takes a few milliseconds instead of hundreds;
-    //  - a sector the console writes while we are flushing is never lost (version counters).
-    int WriteFile()
-    {
-      StorageLock lock;
-
-      if (loaded_file_path[0] == '\0')
-      {
-        ESP_LOGE(kLogPrefix, "No file loaded, abort write\n");
-        return -4;
-      }
-
-      uint32_t write_start_time = (uint32_t)system::timer::timestamp;
-
-      FILE *f = fopen(loaded_file_path, "r+b");
-      if (!f)
-      {
-        // File was deleted/renamed behind our back: recreate it with the whole image
-        f = fopen(loaded_file_path, "wb");
-        if (!f)
-        {
-          ESP_LOGE(kLogPrefix, "Error opening file %s (errno %d)\n", loaded_file_path, errno);
-          return -1;
-        }
-        for (int i = 0; i < CARD_SECTOR_COUNT; i++)
-        {
-          saved_version[i] = (uint16_t)(sio::memory_card::sector_version[i] - 1);
-        }
-      }
-
-      int result = 0;
-      int sectors_written = 0;
-      uint8_t sector_buffer[CARD_SECTOR_SIZE];
-
-      for (int s = 0; s < CARD_SECTOR_COUNT; s++)
-      {
-        uint16_t version = sio::memory_card::sector_version[s];
-        if (version == saved_version[s])
-        {
-          continue;
-        }
-
-        // Snapshot the sector; retry if the SIO core commits it while we copy
-        for (int attempt = 0; attempt < 4; attempt++)
-        {
-          version = sio::memory_card::sector_version[s];
-          memcpy(sector_buffer, &sio::memory_card::memory_card_ram[s * CARD_SECTOR_SIZE], CARD_SECTOR_SIZE);
-          if (version == sio::memory_card::sector_version[s])
-          {
-            break;
-          }
-        }
-
-        if (fseek(f, (long)s * CARD_SECTOR_SIZE, SEEK_SET) != 0 ||
-            fwrite(sector_buffer, 1, CARD_SECTOR_SIZE, f) != CARD_SECTOR_SIZE)
-        {
-          ESP_LOGE(kLogPrefix, "Error writing sector %d (errno %d)\n", s, errno);
-          result = -2;
-          break;
-        }
-
-        saved_version[s] = version;
-        sectors_written++;
-      }
-
-      if (result == 0 && fflush(f) != 0)
-      {
-        result = -3;
-      }
-      if (result == 0)
-      {
-        fsync(fileno(f));
-      }
-      if (fclose(f) != 0 && result == 0)
-      {
-        result = -3;
-      }
-
-      if (result == 0)
-      {
-        ESP_LOGI(kLogPrefix, "Saved %d sector(s) to %s in %ims\n", sectors_written, loaded_file_path,
-                 (int)((uint32_t)system::timer::timestamp - write_start_time));
-      }
-      else
-      {
-        // Whatever was not confirmed on disk stays dirty (saved_version only advances on success),
-        // but we do not know the state of the sector that failed.
-        ESP_LOGE(kLogPrefix, "WriteFile failed (%d)\n", result);
-      }
-
-      return result;
-    }
-
-    // Saves pending changes. Returns true when there is nothing left to save.
-    bool FlushPending()
-    {
-      StorageLock lock;
-
-      if (sio::memory_card::committed_to_storage)
-      {
-        return true;
-      }
-
-      if (!ready || loaded_file_path[0] == '\0')
-      {
-        // Nowhere to save to
-        sio::memory_card::committed_to_storage = true;
-        return true;
-      }
-
-      // Clear the flag BEFORE writing. If the console writes again meanwhile, Commit() raises it again and
-      // the next pass saves that sector. (Clearing it after the write used to lose such updates.)
-      sio::memory_card::committed_to_storage = true;
-      if (WriteFile() == 0)
-      {
-        return true;
-      }
-
-      sio::memory_card::committed_to_storage = false;
-      return false;
-    }
-
-    // Loads a 128 KB card image into RAM and presents it to the console.
-    // A bad file never disturbs the card that is currently mounted.
-    static bool LoadCardImpl(const char *filepath, void *destination, uint32_t settle_ms)
-    {
-      StorageLock lock;
-
-      // filepath may alias loaded_file_path
-      char path[CONFIG_FATFS_MAX_LFN + 1];
-      strlcpy(path, filepath, sizeof(path));
-
-      uint8_t *dest = destination ? (uint8_t *)destination : sio::memory_card::memory_card_ram;
-
-      ESP_LOGI(kLogPrefix, "LoadCardFromFile(%s)\n", path);
-
-      struct stat st;
-      if (stat(path, &st) != 0)
-      {
-        ESP_LOGE(kLogPrefix, "Error opening file!\n");
-        return false;
-      }
-      if (st.st_size != CARD_SIZE_BYTES)
-      {
-        ESP_LOGE(kLogPrefix, "Invalid file size (%ld bytes, expected %d)!\n", (long)st.st_size, CARD_SIZE_BYTES);
-        return false;
-      }
-
-      FILE *f = fopen(path, "rb");
-      if (!f)
-      {
-        ESP_LOGE(kLogPrefix, "Error opening file!\n");
-        return false;
-      }
-
-      // Never drop unsaved changes of the card being replaced
-      if (!FlushPending())
-      {
-        ESP_LOGE(kLogPrefix, "Could not save the current card; keeping it mounted.\n");
-        fclose(f);
-        return false;
-      }
-
-      sio::SetMemoryCardEmulation(false);
-      if (settle_ms > 0)
-      {
-        vTaskDelay(MsToTicks(settle_ms));
-      }
-
-      size_t got = fread(dest, 1, CARD_SIZE_BYTES, f);
-      fclose(f);
-
-      if (got != CARD_SIZE_BYTES)
-      {
-        // RAM now holds a mix of two cards. Do not present it and make sure it can never be written back.
-        ESP_LOGE(kLogPrefix, "Short read (%u bytes)! Card unloaded.\n", (unsigned)got);
-        loaded_file_path[0] = '\0';
-        sio::memory_card::committed_to_storage = true;
-        return false; // emulation stays disabled
-      }
-
-      strlcpy(loaded_file_path, path, sizeof(loaded_file_path));
-      MarkAllSectorsSaved();
-
-      sio::memory_card::flag = sio::memory_card::Flags::kDirectoryUnread;
-      sio::memory_card::GoIdle();
-      sio::memory_card::last_write_tick = sio::event_ticks;
-      sio::memory_card::committed_to_storage = true;
-
-      sio::SetMemoryCardEmulation(true);
-
-      return true;
-    }
-
-    bool LoadCardFromFile(char *filepath, void *destination)
-    {
-      return LoadCardImpl(filepath, destination, 250);
-    }
-
-    // A PS1 card image is only usable if it has the right size, the "MC"
-    // signature and a valid sector-0 checksum (XOR of bytes 0x00..0x7E stored
-    // at 0x7F). The old all-zero default.mc failed this test.
-    static bool IsValidCardImage(const char *path)
-    {
-      struct stat st;
-      if (stat(path, &st) != 0 || st.st_size != CARD_SIZE_BYTES)
-      {
-        return false;
-      }
-
-      FILE *f = fopen(path, "rb");
-      if (!f)
-      {
-        return false;
-      }
-
-      uint8_t header[CARD_SECTOR_SIZE];
-      size_t got = fread(header, 1, sizeof(header), f);
-      fclose(f);
-      if (got != sizeof(header))
-      {
-        return false;
-      }
-
-      if (header[0] != 'M' || header[1] != 'C')
-      {
-        return false;
-      }
-
-      uint8_t checksum = 0;
-      for (size_t i = 0; i < sizeof(header) - 1; i++)
-      {
-        checksum ^= header[i];
-      }
-      return checksum == header[sizeof(header) - 1];
-    }
-
-    // Mounts <SD>/default.mc, creating a blank formatted card if it does not exist yet.
-    static bool MountDefaultCard(uint32_t settle_ms)
-    {
-      char target[CONFIG_FATFS_MAX_LFN + 1];
-      snprintf(target, sizeof(target), "%s/default.mc", base_path);
-
-      struct stat st;
-      if (stat(target, &st) == 0)
-      {
-#if MC_AUTO_REPAIR_DEFAULT_CARD
-        if (!IsValidCardImage(target))
-        {
-          // Never overwrite silently: keep the bad file for inspection.
-          char backup[CONFIG_FATFS_MAX_LFN + 16];
-          snprintf(backup, sizeof(backup), "%s.invalid", target);
-          unlink(backup);
-          if (rename(target, backup) != 0)
-          {
-            ESP_LOGE(kLogPrefix, "default.mc is invalid and could not be moved aside (errno %d); refusing to overwrite it.\n", errno);
-            return false;
-          }
-          ESP_LOGW(kLogPrefix, "default.mc was not a valid PS1 card image (size/signature/checksum); moved to %s and creating a fresh Boot Card.\n", backup);
-        }
-#endif
-      }
-
-      if (stat(target, &st) != 0)
-      {
-        ESP_LOGW(kLogPrefix, "default.mc not found, creating a blank formatted card.\n");
-        if (!CreateBlankFormattedCard(target))
-        {
-          return false;
-        }
-      }
-
-      if (!IsValidCardImage(target))
-      {
-        ESP_LOGE(kLogPrefix, "default.mc is still invalid after creation; leaving memory card emulation disabled.\n");
-        return false;
-      }
-
-      return LoadCardImpl(target, sio::memory_card::memory_card_ram, settle_ms);
-    }
-
-    void Init()
-    {
-      if (storage_mutex == NULL)
-      {
-        storage_mutex = xSemaphoreCreateRecursiveMutex();
-      }
-
-      loaded_file_path[0] = '\0';
-
-      if (sdcard::Init() == ESP_OK)
-      {
-        strcpy(storage::base_path, "/sdcard");
-        storage::ready = true;
-
-        // SIO is not running yet at this point, so there is no need to wait for the console
-        if (!MountDefaultCard(0))
-        {
-          // Better "no card" than a wrong or damaged one; default.mc is left untouched
-          ESP_LOGE(kLogPrefix, "Could not mount default.mc: memory card emulation disabled.\n");
-          loaded_file_path[0] = '\0';
-          sio::SetMemoryCardEmulation(false);
-        }
-      }
-      else
-      {
-        ESP_LOGE(kLogPrefix, "SD card not available: memory card emulation disabled until it is mounted.\n");
-        sio::SetMemoryCardEmulation(false);
-      }
-    }
-
-    static bool ResolveParentGameID(const char *child_id, char *out_parent, size_t out_len)
-    {
-      if (!child_id || child_id[0] == '\0' || !out_parent || out_len == 0)
-      {
-        return false;
-      }
-
-      // Check /sdcard/multidisc.txt if present
-      char multidisc_path[CONFIG_FATFS_MAX_LFN + 1];
-      snprintf(multidisc_path, sizeof(multidisc_path), "%s/multidisc.txt", base_path);
-
-      FILE *f = fopen(multidisc_path, "r");
-      if (f)
-      {
-        char line[64];
-        const size_t child_len = strlen(child_id);
-        while (fgets(line, sizeof(line), f))
-        {
-          if (line[0] == '#' || line[0] == '\r' || line[0] == '\n')
-          {
-            continue;
-          }
-          if (strncasecmp(line, child_id, child_len) == 0 && line[child_len] == '=')
-          {
-            const char *val = line + child_len + 1;
-            size_t val_len = strcspn(val, "\r\n ");
-            if (val_len > 0 && val_len < out_len)
-            {
-              memcpy(out_parent, val, val_len);
-              out_parent[val_len] = '\0';
-              fclose(f);
-              return true;
-            }
-          }
-        }
-        fclose(f);
-      }
-
-      return false;
-    }
-
-    bool SwitchToGameID(const char *game_id_str)
-    {
-      if (!game_id_str || strlen(game_id_str) == 0 || !ready)
-      {
-        return false;
-      }
-
-      StorageLock lock;
-
-      ESP_LOGI(kLogPrefix, "SwitchToGameID: Raw GameID received: '%s'\n", game_id_str);
-
-      // Extract Game ID from paths like "cdrom:\SLUS_010.66;1", "SLUS_010.66", "SLUS-01066", etc.
-      // Search for standard 4-letter PSX prefixes (SLUS, SCUS, SLES, SCES, SLPS, SLPM, SCPS, etc.)
-      const char *p = game_id_str;
-      char clean_id[64];
-      clean_id[0] = '\0';
-
-      while (*p)
-      {
-        // Check if current 4 characters are an alphabetic code
-        if (isalpha((unsigned char)p[0]) && isalpha((unsigned char)p[1]) &&
-            isalpha((unsigned char)p[2]) && isalpha((unsigned char)p[3]))
-        {
-          char prefix[5];
-          prefix[0] = toupper((unsigned char)p[0]);
-          prefix[1] = toupper((unsigned char)p[1]);
-          prefix[2] = toupper((unsigned char)p[2]);
-          prefix[3] = toupper((unsigned char)p[3]);
-          prefix[4] = '\0';
-
-          const char *digits_ptr = p + 4;
-          // Skip optional separators like '_', '-', or ' '
-          while (*digits_ptr == '_' || *digits_ptr == '-' || *digits_ptr == ' ')
-          {
-            digits_ptr++;
-          }
-
-          // Extract digits (handling dots, e.g. "010.66" -> "01066")
-          char num_buf[16];
-          size_t num_len = 0;
-          while (*digits_ptr && num_len < sizeof(num_buf) - 1)
-          {
-            if (isdigit((unsigned char)*digits_ptr))
-            {
-              num_buf[num_len++] = *digits_ptr;
-            }
-            else if (*digits_ptr != '.')
-            {
-              // Hit ';' or space or another separator indicating end of number
-              break;
-            }
-            digits_ptr++;
-          }
-          num_buf[num_len] = '\0';
-
-          if (num_len >= 3)
-          {
-            // Found a valid GameID! Format as PREFIX-NUMBER (e.g. SLUS-01066)
-            snprintf(clean_id, sizeof(clean_id), "%s-%s", prefix, num_buf);
-            break;
-          }
-        }
-        p++;
-      }
-
-      if (clean_id[0] == '\0')
-      {
-        ESP_LOGW(kLogPrefix, "SwitchToGameID: Non-standard or unparseable GameID '%s', ignoring card switch request.\n", game_id_str);
-        return false;
-      }
-
-      ESP_LOGI(kLogPrefix, "SwitchToGameID: Parsed GameID -> '%s'\n", clean_id);
-
-      // Search candidates in order of priority:
-      // 1. <GameID>-1.mc (PSxMemCard Gen2 standard channel)
-      // 2. <GameID>.mc
-      // 3. <GameID>-1.mcd
-      // 4. <GameID>.mcd
-      // 5. <GameID>-1.mcr
-      // 6. <GameID>.mcr
-      const char *suffixes[] = {
-        "-1.mc",
-        ".mc",
-        "-1.mcd",
-        ".mcd",
-        "-1.mcr",
-        ".mcr"
-      };
-
-      char found_path[CONFIG_FATFS_MAX_LFN + 1];
-      bool file_exists = false;
-
-      // 1. Check if a dedicated save file for this specific disc already exists on the SD
-      for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++)
-      {
-        snprintf(found_path, sizeof(found_path), "%s/%s%s", base_path, clean_id, suffixes[i]);
-        FILE *f = fopen(found_path, "rb");
-        if (f)
-        {
-          fclose(f);
-          file_exists = true;
-          ESP_LOGI(kLogPrefix, "SwitchToGameID: Found existing save file '%s'!\n", found_path);
-          break;
-        }
-      }
-
-      // 2. If no dedicated save file exists, check multi-disc parent mapping (e.g. SCUS-94164 -> SCUS-94163)
-      if (!file_exists)
-      {
-        char parent_id[64];
-        if (ResolveParentGameID(clean_id, parent_id, sizeof(parent_id)))
-        {
-          ESP_LOGI(kLogPrefix, "SwitchToGameID: Multi-disc child ID '%s' resolving to parent '%s'...\n", clean_id, parent_id);
-          for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++)
-          {
-            snprintf(found_path, sizeof(found_path), "%s/%s%s", base_path, parent_id, suffixes[i]);
-            FILE *f = fopen(found_path, "rb");
-            if (f)
-            {
-              fclose(f);
-              file_exists = true;
-              ESP_LOGI(kLogPrefix, "SwitchToGameID: Found existing parent save file '%s'!\n", found_path);
-              strlcpy(clean_id, parent_id, sizeof(clean_id));
-              break;
-            }
-          }
-          if (!file_exists)
-          {
-            // If neither exists, use parent ID so all continuation discs share the newly created card
-            strlcpy(clean_id, parent_id, sizeof(clean_id));
-          }
-        }
-      }
-
-      // If no candidate exists, create default <GameID>-1.mc
-      if (!file_exists)
-      {
-        snprintf(found_path, sizeof(found_path), "%s/%s-1.mc", base_path, clean_id);
-        ESP_LOGI(kLogPrefix, "SwitchToGameID: No existing save file found. Creating '%s'...\n", found_path);
-        if (!CreateBlankFormattedCard(found_path))
-        {
-          ESP_LOGE(kLogPrefix, "SwitchToGameID: could not create '%s'; keeping the current card.\n", found_path);
-          return false;
-        }
-      }
-
-      if (strcasecmp(loaded_file_path, found_path) == 0)
-      {
-        ESP_LOGI(kLogPrefix, "GameID save %s is already loaded. Cycling card connection for ODE/Game detection.\n", found_path);
-        sio::SetMemoryCardEmulation(false);
-        vTaskDelay(250 / portTICK_PERIOD_MS);
-        sio::memory_card::flag = sio::memory_card::Flags::kDirectoryUnread;
-        sio::memory_card::GoIdle();
-        sio::SetMemoryCardEmulation(true);
-        return true;
-      }
-
-      return LoadCardFromFile(found_path, sio::memory_card::memory_card_ram);
-    }
-
     bool UnloadCard()
     {
       StorageLock lock;
@@ -781,11 +1410,9 @@ namespace openmc
         ESP_LOGE(kLogPrefix, "SafelyUnmountSD: could not save pending changes, SD kept mounted.\n");
         return false;
       }
-      // Stop new console writes first, then unmount. If the unmount fails we
-      // re-enable emulation so the still-mounted card keeps working.
       sio::SetMemoryCardEmulation(false);
 
-      if (storage::ready)
+      if (ready)
       {
         if (sdcard::unmount_sdcard() != ESP_OK)
         {
@@ -793,7 +1420,7 @@ namespace openmc
           sio::SetMemoryCardEmulation(true);
           return false;
         }
-        storage::ready = false;
+        ready = false;
       }
 
       loaded_file_path[0] = '\0';
@@ -806,20 +1433,21 @@ namespace openmc
       StorageLock lock;
 
       ESP_LOGI(kLogPrefix, "RemountSD: attempting to remount MicroSD card...\n");
-      if (storage::ready)
+      if (ready)
       {
         return true;
       }
 
       if (sdcard::Init() == ESP_OK)
       {
-        strcpy(storage::base_path, "/sdcard");
-        storage::ready = true;
+        strcpy(base_path, "/sdcard");
+        ready = true;
 
-        if (!MountDefaultCard(250))
+        if (!MountBootCard(250))
         {
-          ESP_LOGW(kLogPrefix, "RemountSD: SD mounted, but no card could be loaded from default.mc.\n");
+          ESP_LOGW(kLogPrefix, "RemountSD: SD mounted, but no BootCard could be loaded.\n");
         }
+        ApplyPendingGameID();
         ESP_LOGI(kLogPrefix, "RemountSD: successfully remounted MicroSD card!\n");
         return true;
       }
@@ -829,5 +1457,44 @@ namespace openmc
         return false;
       }
     }
-  } // storage
-} // openmc
+
+    void Init()
+    {
+      if (storage_mutex == NULL)
+      {
+        storage_mutex = xSemaphoreCreateRecursiveMutex();
+      }
+
+      loaded_file_path[0] = '\0';
+
+      if (sdcard::Init() == ESP_OK)
+      {
+        strcpy(base_path, "/sdcard");
+        ready = true;
+
+        LegacyProbeResult probe = ProbeLegacyLayout();
+        if (probe.Any())
+        {
+          ESP_LOGW(kLogPrefix, "legacy layout detected (games=%d, default=%d, g2f=%d, multidisc=%d); run tools/migrate_sd.py on a PC\n",
+                   probe.games_dir, probe.default_mc, probe.root_game2folder, probe.multidisc_txt);
+        }
+
+        EnsureCardsRoot();
+
+        if (!MountBootCard(0))
+        {
+          ESP_LOGE(kLogPrefix, "Could not mount BootCard: memory card emulation disabled.\n");
+          loaded_file_path[0] = '\0';
+          sio::SetMemoryCardEmulation(false);
+        }
+
+        ApplyPendingGameID();
+      }
+      else
+      {
+        ESP_LOGE(kLogPrefix, "SD card not available: memory card emulation disabled until it is mounted.\n");
+        sio::SetMemoryCardEmulation(false);
+      }
+    }
+  } // namespace storage
+} // namespace openmc

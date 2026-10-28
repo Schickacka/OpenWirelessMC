@@ -217,26 +217,26 @@ pio run
 pio run --target upload
 ```
 
-### 7.2. Pacote de Lançamento e Gravação Automatizada (v1.4)
-Os binários pré-compilados e scripts de gravação para Windows encontram-se na pasta [`releases/v1.4_package/`](releases/v1.4_package/):
+### 7.2. Pacote de Lançamento e Gravação Automatizada (v1.5)
+Os binários pré-compilados e scripts de gravação para Windows encontram-se na pasta [`releases/v1.5_package/`](releases/v1.5_package/):
 
 1. Conecte o ESP32 ao computador via cabo USB.
 2. Execute o script automatizado:
    ```cmd
-   cd releases\v1.4_package
+   cd releases\v1.5_package
    flash_windows.bat
    ```
-3. Informe a porta COM correspondente ao dispositivo. O script executará a gravação completa (`bootloader.bin`, `partitions.bin`, `ota_data_initial.bin` e `firmware_v1.4.bin`).
+3. Informe a porta COM correspondente ao dispositivo. O script executará a gravação completa (`bootloader.bin`, `partitions.bin`, `ota_data_initial.bin` e `firmware_v1.5.bin`).
 
 ### 7.3. Gravação Manual com esptool
 Caso prefira gravar manualmente via terminal:
 ```bash
-python -m esptool --chip esp32 --port COMx --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 40m --flash_size 4MB 0x1000 bootloader.bin 0x8000 partitions.bin 0xd000 ota_data_initial.bin 0x10000 firmware_v1.4.bin
+python -m esptool --chip esp32 --port COMx --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 40m --flash_size 4MB 0x1000 bootloader.bin 0x8000 partitions.bin 0xd000 ota_data_initial.bin 0x10000 firmware_v1.5.bin
 ```
 
 ### 7.4. Atualização Remota (Web OTA)
 Com o dispositivo conectado à rede local, atualizações podem ser realizadas diretamente através da interface web (`http://wirelessmc.local/`) na seção **Atualização de Firmware (Web OTA)**:
-1. Selecione o arquivo `firmware_v1.4.bin` gerado ou obtido em [`releases/`](releases/).
+1. Selecione o arquivo `firmware_v1.5.bin` gerado ou obtido em [`releases/`](releases/).
 2. Clique em **Atualizar Firmware**.
 3. O servidor validará a integridade do cabeçalho da imagem antes de comutar a partição de boot e reiniciará o microcontrolador automaticamente.
 
@@ -246,7 +246,8 @@ Com o dispositivo conectado à rede local, atualizações podem ser realizadas d
 
 Para consultar o histórico detalhado de alterações de cada versão, consulte o arquivo [CHANGELOG.md](CHANGELOG.md).
 
-* **v1.4.0 (Atual):** Realinhamento do layout GameID `0x21` (tick 2 comprimento, tick 3+ caracteres), streaming contínuo no FastRead `0x42` até desasserção de SEL, recuperação automática e validação estrita de integridade para `default.mc` (com regeneração do asset Sony com checksum `0x0E`), liberação de barramento SPI em falhas de montagem e unmount, restauração do flag `0x08` ("diretório não lido") após escrita no setor 0, buffer SSID expandido para 32 caracteres completos, stubs de teste host atualizados e sincronização de XTAL para 40 MHz.
+* **v1.5.0 (Atual):** Nova arquitetura de navegação centrada em `/MemoryCards/PS1/`, duplicação de cartões com incremento automático de canal (`POST /api/card/duplicate`), renomeação segura de saves com checagem de colisão e proteção de cartão ativo (`POST /api/rename`), ordenação natural e alfanumérica de títulos sem poluição por tags de região, contadores de cartões por subpasta, filtro dinâmico de pastas (Todas / Com Saves / Vazias), exclusão assíncrona AJAX com notificação toast e decodificação percentual de URIs (`Percent-Decode`), padronização visual dos botões de ação e expansão de capacidade da pilha do servidor web.
+* **v1.4.0:** Realinhamento do layout GameID `0x21` (tick 2 comprimento, tick 3+ caracteres), streaming contínuo no FastRead `0x42` até desasserção de SEL, recuperação automática e validação estrita de integridade para `default.mc` (com regeneração do asset Sony com checksum `0x0E`), liberação de barramento SPI em falhas de montagem e unmount, restauração do flag `0x08` ("diretório não lido") após escrita no setor 0, buffer SSID expandido para 32 caracteres completos, stubs de teste host atualizados e sincronização de XTAL para 40 MHz.
 * **v1.3.0:** Restauração do acionamento Push-Pull ativo forte nos pinos MISO (DATA) e ACK com alta impedância dinâmica (*Hi-Z*) em modo passivo (solução definitiva para *Crash Bandicoot* e jogos com leitura rápida de diretório), remoção de cortes de ACK intempestivos em limites de setor, posicionamento correto de `core0_stall_end` pós-desasserção de SEL, documentação comparativa completa contra o OpenMC original e atualização da Web UI.
 * **v1.2.0:** Cache versionado dinâmico para `titles.db`, zero títulos hardcoded no HTML, identificação do `default.mc` como `Boot Card`, otimização crítica de DRAM (~45 KB livres), verificação de integridade no Web OTA e suporte estendido a jogos multi-disco (*Policenauts*, *Resident Evil 3*).
 * **v1.1.0:** Suporte a multi-disco via `multidisc.txt`, desmontagem/remontagem a quente e estabilização de buffers.
