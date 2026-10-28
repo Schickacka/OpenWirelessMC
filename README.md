@@ -21,7 +21,7 @@ O OpenWirelessMC implementa a emulação completa do protocolo serial SIO do Pla
   * **Mecanismo de Escrita In-Place por Setor:** Gravação de alterações no MicroSD em modo `r+b` com deslocamento de ponteiro (`fseek`). Apenas os setores efetivamente modificados (128 bytes por setor) são gravados na mídia física, reduzindo expressivamente o desgaste das células flash do cartão SD e eliminando o risco de corrupção total da imagem em caso de desligamento abrupto do console.
   * **Controle Atômico de Versão de Setores:** Matriz estática de rastreamento (`sector_version[1024]`) alocada em memória BSS, prevenindo perda de dados quando o console realiza gravações sucessivas e evitando fragmentação do heap.
   * **Exclusão Mútua (`StorageLock`):** Mutex recursivo que sincroniza com segurança os acessos simultâneos entre o servidor HTTP, a rotina de detecção automática de GameID e a tarefa de persistência de disco.
-  * **Suporte Inteligente a Jogos Multi-Disco (Multi-Disc Parent Mapping):** Mapeamento automático de 471 títulos com múltiplos discos através do arquivo `/sdcard/multidisc.txt` (contagem real do arquivo distribuído em `sdcard_assets/`; versões anteriores do README diziam 475). Ao trocar para discos subsequentes (ex.: Disco 2 de *Final Fantasy*, *Metal Gear Solid*, *Resident Evil 2*, *Policenauts*), o sistema redireciona o arquivo montado para o cartão principal do Disco 1, preservando o progresso contínuo sem gerar cartões vazios indesejados.
+  * **Suporte Inteligente a Jogos Multi-Disco (Multi-Disc Parent Mapping):** Mapeamento automático de **475** títulos com múltiplos discos através de uma tabela de pais **compilada em flash** (`src/storage/parent_db.cc`, gerada por `tools/make_parent_db.py` a partir de `sdcard_assets/multidisc.txt`). Ao trocar para discos subsequentes (ex.: Disco 2 de *Final Fantasy*, *Metal Gear Solid*, *Resident Evil 2*, *Policenauts*), o sistema resolve o ID pai e monta o cartão de `MemoryCards/PS1/<pasta>/<pasta>-<canal>.mcd`, preservando o progresso contínuo sem gerar cartões vazios indesejados. **O firmware não lê nenhum arquivo do SD para isso**; um `Game2Folder.ini` em `.sd2psx/` permite renomear a pasta de um jogo.
   * **Catálogo Global com Cache Versionado Dinâmico:** Identificação de 23.465 títulos catalogados no MicroSD em `titles.db`. O navegador cliente realiza o armazenamento local via `localStorage`, renderizando a biblioteca em menos de 5 ms sem tráfego de rede. O endpoint `/api/status` valida a versão do banco através do hash `size ^ mtime` do arquivo no SD (`titles_version`), atualizando o cache automaticamente em caso de modificação na mídia. Zero jogos comerciais hardcoded nos arquivos de firmware ou HTML.
   * **Cartão Inicial Padronizado:** O arquivo base `default.mc` é identificado e exibido oficialmente como **"Boot Card"** na interface web.
   * **Otimização Crítica de Memória DRAM:** Dimensionamento dinâmico dos buffers de transmissão/recepção Wi-Fi e pilha TCP/IP LWIP, preservando ~45 KB de DRAM interna livre para prevenir qualquer risco de esgotamento de memória (*OOM panic*) durante acessos simultâneos de rede e disco.
@@ -39,8 +39,8 @@ Para desenvolvedores, engenheiros de firmware e analistas de código, esta seç�
 | **Isolamento de Núcleos (Core 1 vs Core 0)** | Execução concorrente com concorrência de memória | **Core 1 Baremetal com Core 0 Stall estendido** | O Core 0 é paralisado por registrador (`core0_stall_start`) durante todo o frame SPI e só é liberado após o retorno de `SEL` para HIGH, evitando jitter de cache/RAM causado por Wi-Fi ou SD. |
 | **Persistência de Saves no MicroSD** | Reescrita destrutiva do arquivo inteiro (`fopen("wb")`) | **Gravação In-Place Cirúrgica por Setor (`r+b` / `fseek`)** | Sobrescrever 128 KB truncava o arquivo para 0 bytes, corrompendo saves em desligamentos acidentais e levando ~400 ms. A escrita in-place grava apenas 128 bytes em ~5 ms sem risco de perda. |
 | **Versionamento de Setores Modificados** | Ausente ou buffer dinâmico no heap | **Matriz Estática `sector_version[1024]` em BSS** | Rastreamento atômico setor a setor. Se o console salvar repetidamente enquanto o SD grava em segundo plano, as versões não são perdidas e não há fragmentação de memória heap. |
-| **Troca Automática de Saves por Jogo (GameID)** | Inexistente (troca exclusivamente manual via web) | **Protocolo MemCard PRO / PicoStation (`0x21`)** | Detecta transmissões de ID de jogos emitidas por xStation, Unirom e Tonyhax, comutando automaticamente para `<GameID>-1.mc` com barreira multicore (`__sync_synchronize`). |
-| **Jogos Multi-Disco** | Criação de cartões vazios independentes por disco | **Resolução Inteligente via `multidisc.txt`** | Mapeamento de 471 títulos (FF7, MGS, RE2, etc.) redirecionando discos 2, 3 e 4 para o save pai do Disco 1, mantendo o progresso unificado. |
+| **Troca Automática de Saves por Jogo (GameID)** | Inexistente (troca exclusivamente manual via web) | **Protocolo MemCard PRO / PicoStation (`0x21`)** | Detecta transmissões de ID de jogos emitidas por xStation, Unirom e Tonyhax, comutando automaticamente para `MemoryCards/PS1/<pasta>/<pasta>-1.mcd` com barreira multicore (`__sync_synchronize`). |
+| **Jogos Multi-Disco** | Criação de cartões vazios independentes por disco | **Tabela de pais compilada + `.sd2psx/Game2Folder.ini`** | Mapeamento de 475 títulos (FF7, MGS, RE2, etc.) redirecionando discos 2, 3 e 4 para a pasta do jogo em `MemoryCards/PS1/<pasta>/`, mantendo o progresso unificado; o override exato permite separar um disco quando desejado. |
 | **Criação de Cartões Novos Formatados** | Preenchimento com bytes nulos ou `0xFF` | **Template Autêntico Sony de Fábrica (sd2psX)** | Bloco 0 gerado a partir do padrão autêntico Sony com blocos 1–15 em `0xFF`. O PS1 e a BIOS reconhecem o cartão imediatamente como formatado sem exigir formatação manual. |
 | **Catálogo de Jogos da Interface Web** | Títulos hardcoded em C/HTML ou ausentes | **Banco `titles.db` + Cache em `localStorage`** | 23.465 títulos catalogados no SD com sincronização delta via hash atômico (`titles_version`), renderização em <5 ms e zero títulos comerciais fixos no firmware. |
 | **Consumo de Memória DRAM do ESP32** | Padrão do SDK (~10-15 KB livres, risco de OOM) | **Ajuste Fino de Buffers Wi-Fi/LWIP (~45 KB livres)** | Buffers estáticos/dinâmicos de rede reduzidos mantendo vazão máxima, eliminando travamentos (*OOM panic*) durante salvamentos pesados simultâneos ao acesso web. |
@@ -75,13 +75,14 @@ Para desenvolvedores, engenheiros de firmware e analistas de código, esta seç�
 
 ### 2.5. Detecção e Comutação Automática de GameID com Barreira Multicore
 * **Automação de Cartões por Título:** O OpenWirelessMC suporta o protocolo de transmissão serial de GameID criado pela comunidade (MemCard PRO / PS1Digital / PicoStation no comando `0x21`).
-* **Sincronização Segura:** O Core 1 intercepta os caracteres do GameID (ex.: `SCUS-94900` para *Crash Bandicoot*), insere a terminação nula e executa uma barreira de memória de hardware (`__sync_synchronize()`). O Core 0 recebe o evento, consulta as tabelas de mapeamento e comuta o arquivo montado automaticamente para `<GameID>-1.mc`. Se o arquivo ainda não existir, o sistema o gera em tempo real a partir do template pré-formatado da Sony.
+* **Sincronização Segura:** O Core 1 intercepta os caracteres do GameID (ex.: `SCUS-94900` para *Crash Bandicoot*), insere a terminação nula e executa uma barreira de memória de hardware (`__sync_synchronize()`). O Core 0 recebe o evento, resolve a pasta (ID pai, se houver, mais o override de `Game2Folder.ini`) e comuta o arquivo montado automaticamente para `MemoryCards/PS1/<pasta>/<pasta>-1.mcd`. Se o arquivo ainda não existir, o sistema cria a pasta e o cartão em tempo real a partir do template pré-formatado da Sony.
 
 ---
 
-### 2.6. Mapeamento Inteligente de Jogos Multi-Disco (`multidisc.txt`)
+### 2.6. Mapeamento Inteligente de Jogos Multi-Disco (tabela compilada)
 * **Continuidade Transparente:** Em jogos clássicos divididos em múltiplos CDs (como *Final Fantasy VIII*, *Metal Gear Solid*, *Resident Evil 2*, *Chrono Cross*), cada disco possui um GameID diferente. Sem mapeamento, o jogador ao inserir o Disco 2 encontrava um cartão vazio e não conseguia carregar o save do Disco 1.
-* **A Solução Adotada:** Um parser rápido no Core 0 lê o arquivo `/sdcard/multidisc.txt` (contendo 471 associações ativas). Ao detectar o ID do Disco 2 (ex.: `SCUS-94164`), o sistema resolve o ID pai do Disco 1 (`SCUS-94163`) e mantém o mesmo cartão montado, permitindo troca de discos transparente e salvamento contínuo.
+* **A Solução Adotada:** As 475 associações filho→pai estão **compiladas no firmware** (`src/storage/parent_db.cc`, 356 pastas de jogo) e são consultadas por busca binária no Core 0. Ao detectar o ID do Disco 2 (ex.: `SCUS-94164`), o sistema resolve o ID pai do Disco 1 (`SCUS-94163`) e monta `MemoryCards/PS1/SCUS-94163/SCUS-94163-<canal>.mcd`, permitindo troca de discos transparente e salvamento contínuo.
+* **Overrides (`Game2Folder.ini`):** o arquivo `.sd2psx/Game2Folder.ini`, seção `[PS1]`, permite apontar um GameID para outra pasta (`SLUS-00592=RE2`) ou separar um disco do cartão compartilhado. É o **único** arquivo de configuração de pastas que o firmware lê; o `multidisc.txt` que existia na raiz do SD nas versões anteriores não é mais consultado — se estiver presente, o `/api/status` avisa `legacy.detected` e o `tools/migrate_sd.py` cuida da limpeza.
 
 ---
 
@@ -185,11 +186,36 @@ Recomenda-se a utilização de um conversor Step-Down chaveado (Buck Converter D
 ## 6. Estrutura do Cartão MicroSD
 
 1. Formate o cartão MicroSD no sistema de arquivos **FAT32**.
-2. Copie os arquivos da pasta [`sdcard_assets/`](sdcard_assets/) para a raiz do cartão:
-   * `titles.db`: Banco de dados global de identificação de títulos por GameID (23.465 entradas).
-   * `multidisc.txt`: Tabela de mapeamento para unificação de jogos multi-disco (471 entradas ativas).
-   * `default.mc`: Boot Card formatado no padrão original Sony (128 KB).
-   * `config.txt`: Arquivo de parâmetros de inicialização de rede Wi-Fi.
+2. Copie **dois** arquivos da pasta [`sdcard_assets/`](sdcard_assets/) para a raiz do cartão:
+   * `titles.db`: Banco de dados global de identificação de títulos (23.465 entradas), usado pela interface web.
+   * `config.txt`: Parâmetros de rede Wi-Fi (veja §6.1).
+3. Ligue o aparelho. O firmware cria sozinho a árvore de cartões:
+
+```text
+/sdcard/
+├── config.txt
+├── titles.db
+├── .sd2psx/                         # opcional
+│   └── Game2Folder.ini              # overrides de pasta (seção [PS1])
+└── MemoryCards/
+    └── PS1/
+        ├── BOOT/
+        │   └── BootCard-1.mcd       # cartão montado no boot (criado automaticamente)
+        ├── UserCards/
+        │   └── UserCards-1.mcd      # cartões criados com nome livre
+        └── SLUS-00421/              # uma pasta por jogo
+            ├── SLUS-00421-1.mcd     # canal 1
+            └── SLUS-00421.ini       # rótulos dos canais ([ChannelName])
+```
+
+4. **Pasta = jogo.** O nome da pasta é o GameID resolvido (o ID pai, no caso de
+   jogo multi-disco); o número é o **canal** de cartão (1..8 por padrão), não o
+   número do disco. Discos 1, 2 e 3 de um mesmo jogo compartilham a mesma pasta.
+5. **Vindo da v1.4:** não copie nada à mão. Rode `tools/migrate_sd.py` no PC
+   (veja §6.2); ele move `default.mc`, os cartões `<GameID>-<n>.mc` e o
+   `multidisc.txt`/`Game2Folder.ini` da raiz para o layout acima, sem apagar
+   nada. O `default.mc` **não** é usado na raiz: na 1.5 o cartão de boot é
+   criado pelo firmware e o `default.mc` só serve de semente para a migração.
 
 ### 6.1. Estrutura do `config.txt`
 ```ini
@@ -201,6 +227,20 @@ password=SuaSenhaWPA2
 ```
 
 Se o modo configurado for `client` e o roteador estiver inacessível, o sistema ativa automaticamente um Ponto de Acesso temporário de recuperação (**Rescue AP**: `SSID: WirelessMC` / `Senha: SenhaDificil!`) em memória RAM, sem sobrescrever o arquivo de configurações salvo no cartão.
+
+---
+
+### 6.2. Atualizando da v1.4 (layout antigo)
+
+```bash
+python tools/migrate_sd.py --root "X:\" --backup "%USERPROFILE%\owmc-backup"   # dry-run
+python tools/migrate_sd.py --root "X:\" --apply --yes
+python tools/migrate_sd.py --root "X:\" --verify
+```
+
+Com o aparelho ligado na rede, troque `--root "X:\"` por `--root http://<ip>`
+(migração por Wi-Fi, sem tirar o cartão). Enquanto o SD estiver no layout
+antigo, `/api/status` responde `"legacy":{"detected":true}`.
 
 ---
 
@@ -246,7 +286,8 @@ Com o dispositivo conectado à rede local, atualizações podem ser realizadas d
 
 Para consultar o histórico detalhado de alterações de cada versão, consulte o arquivo [CHANGELOG.md](CHANGELOG.md).
 
-* **v1.5.0 (Atual):** Nova arquitetura de navegação centrada em `/MemoryCards/PS1/`, duplicação de cartões com incremento automático de canal (`POST /api/card/duplicate`), renomeação segura de saves com checagem de colisão e proteção de cartão ativo (`POST /api/rename`), ordenação natural e alfanumérica de títulos sem poluição por tags de região, contadores de cartões por subpasta, filtro dinâmico de pastas (Todas / Com Saves / Vazias), exclusão assíncrona AJAX com notificação toast e decodificação percentual de URIs (`Percent-Decode`), padronização visual dos botões de ação e expansão de capacidade da pilha do servidor web.
+* **v1.5.1 (Atual):** Correções de integridade e de documentação sobre a 1.5.0: cartão de boot inválido passa a ser preservado como `BootCard-1.mcd.invalid` em vez de sobrescrito; `/api/rename` exige nome simples e a **mesma extensão** do cartão; `/api/card/name` valida pasta e canal; a allowlist de `/api/fs/*` deixa de aceitar `*.mcd`/`*.ini`/`*.bak` fora de `MemoryCards/PS1`, `.sd2psx` e `games`; `/api/fs/delete` nunca apaga conteúdo de pasta (só remove pasta vazia); o upload de `/api/fs/put` não segura mais o `StorageLock` durante o recebimento; `/api/status` conta os cartões em `MemoryCards/PS1` e a versão vem do app descriptor; cartões criados com nome livre voltam para `UserCards` com o nome em `[ChannelName]`. Documentação reescrita (475 pares compilados, layout `MemoryCards/PS1`, atualização da 1.4 pelo `migrate_sd.py`).
+* **v1.5.0:** Nova arquitetura de navegação centrada em `/MemoryCards/PS1/`, duplicação de cartões com incremento automático de canal (`POST /api/card/duplicate`), renomeação segura de saves com checagem de colisão e proteção de cartão ativo (`POST /api/rename`), ordenação natural e alfanumérica de títulos sem poluição por tags de região, contadores de cartões por subpasta, filtro dinâmico de pastas (Todas / Com Saves / Vazias), exclusão assíncrona AJAX com notificação toast e decodificação percentual de URIs (`Percent-Decode`), padronização visual dos botões de ação e expansão de capacidade da pilha do servidor web.
 * **v1.4.0:** Realinhamento do layout GameID `0x21` (tick 2 comprimento, tick 3+ caracteres), streaming contínuo no FastRead `0x42` até desasserção de SEL, recuperação automática e validação estrita de integridade para `default.mc` (com regeneração do asset Sony com checksum `0x0E`), liberação de barramento SPI em falhas de montagem e unmount, restauração do flag `0x08` ("diretório não lido") após escrita no setor 0, buffer SSID expandido para 32 caracteres completos, stubs de teste host atualizados e sincronização de XTAL para 40 MHz.
 * **v1.3.0:** Restauração do acionamento Push-Pull ativo forte nos pinos MISO (DATA) e ACK com alta impedância dinâmica (*Hi-Z*) em modo passivo (solução definitiva para *Crash Bandicoot* e jogos com leitura rápida de diretório), remoção de cortes de ACK intempestivos em limites de setor, posicionamento correto de `core0_stall_end` pós-desasserção de SEL, documentação comparativa completa contra o OpenMC original e atualização da Web UI.
 * **v1.2.0:** Cache versionado dinâmico para `titles.db`, zero títulos hardcoded no HTML, identificação do `default.mc` como `Boot Card`, otimização crítica de DRAM (~45 KB livres), verificação de integridade no Web OTA e suporte estendido a jogos multi-disco (*Policenauts*, *Resident Evil 3*).

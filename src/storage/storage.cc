@@ -934,12 +934,26 @@ namespace openmc
       BuildBootCardPath(1, boot_path, sizeof(boot_path));
 
       struct stat st;
-      if (stat(boot_path, &st) == 0 && st.st_size == (off_t)kCardSizeBytes)
+      // Um BootCard existente mas invalido nunca e sobrescrito: vai para
+      // BootCard-1.mcd.invalid e um novo cartao em branco e criado no lugar.
+      if (stat(boot_path, &st) == 0 && !IsValidCardImage(boot_path))
       {
-        if (IsValidCardImage(boot_path))
+        char invalid_path[kCardPathMax + 16];
+        snprintf(invalid_path, sizeof(invalid_path), "%s.invalid", boot_path);
+        unlink(invalid_path);
+        if (rename(boot_path, invalid_path) != 0)
         {
-          return LoadCardImpl(boot_path, sio::memory_card::memory_card_ram, settle_ms);
+          ESP_LOGE(kLogPrefix, "MountBootCard: %s is invalid and could not be moved aside (errno %d)\n",
+                   boot_path, errno);
+          return false;
         }
+        ESP_LOGW(kLogPrefix, "MountBootCard: %s is not a valid card image; moved to %s\n",
+                 boot_path, invalid_path);
+      }
+
+      if (stat(boot_path, &st) == 0 && IsValidCardImage(boot_path))
+      {
+        return LoadCardImpl(boot_path, sio::memory_card::memory_card_ram, settle_ms);
       }
 
       char legacy_boot[kCardPathMax];

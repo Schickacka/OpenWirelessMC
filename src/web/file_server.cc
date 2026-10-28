@@ -813,7 +813,9 @@ static bool IsFsPathAllowed(const char *rel_path)
         return false;
     }
 
-    if (strcmp(rel_path, "config.txt") == 0 || strcmp(rel_path, "titles.db") == 0)
+    const char *base_name = strrchr(rel_path, '/');
+    base_name = (base_name != NULL) ? (base_name + 1) : rel_path;
+    if (strcasecmp(base_name, "config.txt") == 0 || strcasecmp(base_name, "titles.db") == 0)
     {
         return false;
     }
@@ -843,24 +845,9 @@ static bool IsFsPathAllowed(const char *rel_path)
         return true;
     }
 
-    const char *dot = strrchr(rel_path, '.');
-    if (dot)
-    {
-        if (strcasecmp(dot, ".mcd") == 0 ||
-            strcasecmp(dot, ".mc") == 0 ||
-            strcasecmp(dot, ".mcr") == 0 ||
-            strcasecmp(dot, ".sav") == 0 ||
-            strcasecmp(dot, ".ini") == 0)
-        {
-            return true;
-        }
-    }
-
-    if (strstr(rel_path, ".bak"))
-    {
-        return true;
-    }
-
+    // Sem catch-all por extensao: cartao e .ini so dentro das raizes acima.
+    // O script de migracao so precisa de MemoryCards/PS1, .sd2psx, games e dos
+    // tres arquivos legados da raiz (com seus .bak), todos ja cobertos.
     return false;
 }
 
@@ -1170,6 +1157,7 @@ static bool IsFsPathAllowed(const char *rel_path)
 
                 char target_folder[64];
                 char norm_id[64];
+                char channel_label[128] = {0};
                 bool is_game_id = storage::NormalizeGameID(clean_name, norm_id, sizeof(norm_id));
 
                 if (is_game_id)
@@ -1181,13 +1169,16 @@ static bool IsFsPathAllowed(const char *rel_path)
                 }
                 else
                 {
+                    // Nome livre NUNCA vira pasta: o cartao vai para UserCards e o
+                    // nome digitado fica apenas no [ChannelName] do canal.
                     if (!storage::IsValidFolderName(clean_name))
                     {
                         httpd_resp_set_status(req, "400 Bad Request");
                         httpd_resp_set_type(req, "application/json");
                         return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Nome de cartao ou pasta invalido\"}");
                     }
-                    strlcpy(target_folder, clean_name, sizeof(target_folder));
+                    strlcpy(target_folder, storage::kUserCardsFolder, sizeof(target_folder));
+                    strlcpy(channel_label, clean_name, sizeof(channel_label));
                 }
 
                 char rel_dir[128];
@@ -1224,6 +1215,10 @@ static bool IsFsPathAllowed(const char *rel_path)
                     {
                         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create card image");
                         return ESP_FAIL;
+                    }
+                    if (channel_label[0] != '\0')
+                    {
+                        storage::WriteFolderChannelName(target_folder, target_folder, target_ch, channel_label);
                     }
                 }
 
@@ -1316,10 +1311,17 @@ static bool IsFsPathAllowed(const char *rel_path)
                 }
 
                 unsigned channel = (unsigned)atoi(channel_str);
-                if (channel == 0)
+                if (channel < storage::kCardChannelMin || channel > storage::kCardChannelMax)
                 {
                     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid channel");
                     return ESP_FAIL;
+                }
+
+                if (!storage::IsValidFolderName(folder))
+                {
+                    httpd_resp_set_status(req, "400 Bad Request");
+                    httpd_resp_set_type(req, "application/json");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Pasta invalida\"}");
                 }
 
                 if (!storage::WriteFolderChannelName(folder, folder, channel, name))
@@ -1572,6 +1574,14 @@ static bool IsFsPathAllowed(const char *rel_path)
                 }
                 fs_transfer_busy = true;
 
+                if (req->content_len <= 0 || req->content_len > MAX_FILE_SIZE)
+                {
+                    fs_transfer_busy = false;
+                    httpd_resp_set_status(req, "413 Payload Too Large");
+                    httpd_resp_set_type(req, "application/json");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Arquivo maior que 8MB\"}");
+                }
+
                 char query[128] = {0};
                 char rel_path[storage::kCardPathMax] = {0};
                 char overwrite_str[16] = {0};
@@ -1579,6 +1589,15 @@ static bool IsFsPathAllowed(const char *rel_path)
                 {
                     httpd_query_key_value(query, "path", rel_path, sizeof(rel_path));
                     httpd_query_key_value(query, "overwrite", overwrite_str, sizeof(overwrite_str));
+                }
+
+                if (strchr(rel_path, '%'))
+                {
+                    char decoded_path[storage::kCardPathMax];
+                    if (web::PercentDecode(rel_path, decoded_path, sizeof(decoded_path), false))
+                    {
+                        strlcpy(rel_path, decoded_path, sizeof(rel_path));
+                    }
                 }
 
                 if (!IsFsPathAllowed(rel_path))
@@ -1593,40 +1612,47 @@ static bool IsFsPathAllowed(const char *rel_path)
                 char final_path[storage::kCardPathMax + 32];
                 snprintf(final_path, sizeof(final_path), "%s/%s", storage::base_path, rel_path);
 
-                storage::StorageLock lock;
-                if (storage::loaded_file_path[0] != '\0' && strcasecmp(storage::loaded_file_path, final_path) == 0)
-                {
-                    fs_transfer_busy = false;
-                    httpd_resp_set_status(req, "409 Conflict");
-                    httpd_resp_set_type(req, "application/json");
-                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Cannot overwrite currently mounted card\"}");
-                }
-
                 bool overwrite = (strcmp(overwrite_str, "1") == 0);
                 struct stat st;
-                if (stat(final_path, &st) == 0 && !overwrite)
-                {
-                    fs_transfer_busy = false;
-                    httpd_resp_set_status(req, "409 Conflict");
-                    httpd_resp_set_type(req, "application/json");
-                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"File exists\"}");
-                    return ESP_FAIL;
-                }
-
                 char part_path[storage::kCardPathMax + 40];
                 snprintf(part_path, sizeof(part_path), "%s.part", final_path);
 
                 char parent_dir[storage::kCardPathMax];
                 strlcpy(parent_dir, rel_path, sizeof(parent_dir));
-                char *last_slash = strrchr(parent_dir, '/');
-                if (last_slash)
+
+                // Lock curto: as checagens iniciais e a criacao da pasta. O
+                // recebimento do corpo (abaixo) roda FORA do lock, para nao
+                // travar a tarefa que grava os saves do console.
                 {
-                    *last_slash = '\0';
-                    if (!storage::EnsureDirectoryPublic(parent_dir))
+                    storage::StorageLock lock;
+                    storage::FlushPending();
+
+                    if (storage::loaded_file_path[0] != '\0' && strcasecmp(storage::loaded_file_path, final_path) == 0)
                     {
                         fs_transfer_busy = false;
-                        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Cannot create parent dir");
-                        return ESP_FAIL;
+                        httpd_resp_set_status(req, "409 Conflict");
+                        httpd_resp_set_type(req, "application/json");
+                        return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Cannot overwrite currently mounted card\"}");
+                    }
+
+                    if (stat(final_path, &st) == 0 && !overwrite)
+                    {
+                        fs_transfer_busy = false;
+                        httpd_resp_set_status(req, "409 Conflict");
+                        httpd_resp_set_type(req, "application/json");
+                        return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"File exists\"}");
+                    }
+
+                    char *last_slash = strrchr(parent_dir, '/');
+                    if (last_slash)
+                    {
+                        *last_slash = '\0';
+                        if (!storage::EnsureDirectoryPublic(parent_dir))
+                        {
+                            fs_transfer_busy = false;
+                            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Cannot create parent dir");
+                            return ESP_FAIL;
+                        }
                     }
                 }
 
@@ -1681,36 +1707,51 @@ static bool IsFsPathAllowed(const char *rel_path)
                 fsync(fileno(f));
                 fclose(f);
 
-                char bak_path[storage::kCardPathMax + 40];
-                snprintf(bak_path, sizeof(bak_path), "%s.bak", final_path);
-                bool dest_existed = (stat(final_path, &st) == 0);
-                if (dest_existed)
+                // Commit sob lock: o cartao pode ter sido montado durante o envio.
                 {
-                    unlink(bak_path);
-                    if (rename(final_path, bak_path) != 0)
+                    storage::StorageLock lock;
+                    storage::FlushPending();
+
+                    if (storage::loaded_file_path[0] != '\0' && strcasecmp(storage::loaded_file_path, final_path) == 0)
                     {
                         unlink(part_path);
                         fs_transfer_busy = false;
-                        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Backup rename failed");
-                        return ESP_FAIL;
+                        httpd_resp_set_status(req, "409 Conflict");
+                        httpd_resp_set_type(req, "application/json");
+                        return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Card mounted during upload\"}");
                     }
-                }
 
-                if (rename(part_path, final_path) != 0)
-                {
-                    unlink(part_path);
+                    char bak_path[storage::kCardPathMax + 40];
+                    snprintf(bak_path, sizeof(bak_path), "%s.bak", final_path);
+                    bool dest_existed = (stat(final_path, &st) == 0);
                     if (dest_existed)
                     {
-                        rename(bak_path, final_path);
+                        unlink(bak_path);
+                        if (rename(final_path, bak_path) != 0)
+                        {
+                            unlink(part_path);
+                            fs_transfer_busy = false;
+                            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Backup rename failed");
+                            return ESP_FAIL;
+                        }
                     }
-                    fs_transfer_busy = false;
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Rename failed");
-                    return ESP_FAIL;
-                }
 
-                if (dest_existed)
-                {
-                    unlink(bak_path);
+                    if (rename(part_path, final_path) != 0)
+                    {
+                        unlink(part_path);
+                        if (dest_existed)
+                        {
+                            rename(bak_path, final_path);
+                        }
+                        fs_transfer_busy = false;
+                        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Rename failed");
+                        return ESP_FAIL;
+                    }
+
+                    if (dest_existed)
+                    {
+                        unlink(bak_path);
+                    }
                 }
 
                 storage::ProbeLegacyLayout();
@@ -1790,38 +1831,11 @@ static bool IsFsPathAllowed(const char *rel_path)
 
                 if (S_ISDIR(st.st_mode))
                 {
+                    // Pasta so sai vazia. Nunca apagar conteudo: as raizes
+                    // (MemoryCards, MemoryCards/PS1, .sd2psx, games) chegam aqui
+                    // pelo script de migracao apenas para remover diretorio que
+                    // ja esta vazio.
                     if (rmdir(full_path) != 0)
-                    {
-                        DIR *d = opendir(full_path);
-                        if (d)
-                        {
-                            struct dirent *de;
-                            char subpath[1024];
-                            bool has_mc = false;
-                            while ((de = readdir(d)) != NULL)
-                            {
-                                if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
-                                if (IS_FILE_EXT(de->d_name, ".mc") || IS_FILE_EXT(de->d_name, ".mcd") || IS_FILE_EXT(de->d_name, ".mcr"))
-                                {
-                                    has_mc = true;
-                                    break;
-                                }
-                            }
-                            if (!has_mc)
-                            {
-                                rewinddir(d);
-                                while ((de = readdir(d)) != NULL)
-                                {
-                                    if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
-                                    snprintf(subpath, sizeof(subpath), "%s/%s", full_path, de->d_name);
-                                    unlink(subpath);
-                                }
-                            }
-                            closedir(d);
-                            rmdir(full_path);
-                        }
-                    }
-                    if (stat(full_path, &st) == 0)
                     {
                         httpd_resp_set_status(req, "400 Bad Request");
                         httpd_resp_set_type(req, "application/json");
@@ -1977,11 +1991,40 @@ static bool IsFsPathAllowed(const char *rel_path)
                 else rel_dir[0] = '\0';
 
                 char clean_new[128];
+                if (strlen(new_name) >= sizeof(clean_new))
+                {
+                    httpd_resp_set_status(req, "400 Bad Request");
+                    httpd_resp_set_type(req, "application/json");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Nome muito longo\"}");
+                }
                 strlcpy(clean_new, new_name, sizeof(clean_new));
+                // O destino e sempre um nome de arquivo simples dentro da pasta
+                // de origem: nada de separador, drive ou caractere de controle.
+                if (strpbrk(clean_new, "/\\:*?\"<>|") != NULL ||
+                    clean_new[0] == '.' || clean_new[0] == '\0')
+                {
+                    httpd_resp_set_status(req, "400 Bad Request");
+                    httpd_resp_set_type(req, "application/json");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Nome de arquivo invalido\"}");
+                }
+
                 const char *old_dot = strrchr(rel_old, '.');
-                if (!strchr(clean_new, '.') && old_dot)
+                const char *new_dot = strrchr(clean_new, '.');
+                if (old_dot == NULL)
+                {
+                    httpd_resp_set_status(req, "400 Bad Request");
+                    httpd_resp_set_type(req, "application/json");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Origem sem extensao\"}");
+                }
+                if (new_dot == NULL)
                 {
                     strlcat(clean_new, old_dot, sizeof(clean_new));
+                }
+                else if (strcasecmp(new_dot, old_dot) != 0)
+                {
+                    httpd_resp_set_status(req, "400 Bad Request");
+                    httpd_resp_set_type(req, "application/json");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"A extensao do cartao deve ser mantida\"}");
                 }
 
                 char full_new[512];
@@ -2231,17 +2274,38 @@ static bool IsFsPathAllowed(const char *rel_path)
                 {
                     cached_ps1_count = 0;
                     cached_ps2_count = 0;
-                    DIR *d = opendir(storage::base_path);
+                    char cards_root[storage::kCardPathMax];
+                    snprintf(cards_root, sizeof(cards_root), "%s/%s", storage::base_path, storage::kCardsRoot);
+                    DIR *d = opendir(cards_root);
                     if (d)
                     {
                         struct dirent *de;
                         while ((de = readdir(d)) != NULL)
                         {
-                            const char *dot = strrchr(de->d_name, '.');
-                            if (dot && (strcasecmp(dot, ".mc") == 0 || strcasecmp(dot, ".mcd") == 0 || strcasecmp(dot, ".mcr") == 0))
+                            if (de->d_name[0] == '.')
                             {
-                                cached_ps1_count++;
+                                continue;
                             }
+                            char folder_path[storage::kCardPathMax];
+                            if (snprintf(folder_path, sizeof(folder_path), "%s/%s", cards_root, de->d_name) >= (int)sizeof(folder_path))
+                            {
+                                continue;
+                            }
+                            DIR *fd = opendir(folder_path);
+                            if (!fd)
+                            {
+                                continue;
+                            }
+                            struct dirent *card;
+                            while ((card = readdir(fd)) != NULL)
+                            {
+                                if (IS_FILE_EXT(card->d_name, ".mcd") || IS_FILE_EXT(card->d_name, ".mc") ||
+                                    IS_FILE_EXT(card->d_name, ".mcr"))
+                                {
+                                    cached_ps1_count++;
+                                }
+                            }
+                            closedir(fd);
                         }
                         closedir(d);
                     }
@@ -2290,7 +2354,12 @@ static bool IsFsPathAllowed(const char *rel_path)
                     titles_version = (uint32_t)((uint32_t)t_stat.st_size ^ (uint32_t)t_stat.st_mtime);
                 }
 
-                const char *fw_version = "1.5.0";
+                // Versao vem do app descriptor (CMakeLists). O fallback so vale
+                // para builds de host, onde o descritor nao existe.
+                const esp_app_desc_t *app_desc = esp_ota_get_app_description();
+                const char *fw_version = (app_desc != NULL && app_desc->version[0] != '\0')
+                                             ? app_desc->version
+                                             : "1.5.1";
 
                 char *json_resp = (char *)malloc(2048);
                 if (!json_resp)

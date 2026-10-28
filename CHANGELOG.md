@@ -6,6 +6,26 @@ O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/p
 
 ---
 
+## [1.5.1] - 2026-10-28
+
+### Corrigido
+- **Cartão de boot preservado:** `MountBootCard()` não sobrescreve mais um `BootCard-1.mcd` com header inválido. O arquivo é movido para `BootCard-1.mcd.invalid` e um cartão novo é criado no lugar; antes, o `fopen(..., "wb")` apagava o conteúdo sem cópia.
+- **`/api/rename` com validação de destino:** o nome novo precisa ser um nome simples (sem `/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|`) e manter a **mesma extensão** da origem (`.mc`, `.mcd` ou `.mcr`). Renomear `Cartao-1.mcd` para `Cartao.txt` deixou de ser possível.
+- **`/api/card/name` valida pasta e canal:** `folder` passa por `IsValidFolderName()` e `channel` fica em `1..254`; antes qualquer string ia direto para o caminho do `.ini`.
+- **Allowlist de `/api/fs/*` sem catch-all:** `*.mcd`, `*.mc`, `*.mcr`, `*.sav`, `*.ini` e qualquer nome com `.bak` só são aceitos dentro de `MemoryCards/PS1/`, `.sd2psx/` e `games/` (mais os três arquivos legados da raiz). Cartão solto na raiz deixa de ser criado/gravado pela API — era o que o teste 11 já exigia.
+- **`/api/fs/delete` nunca apaga conteúdo:** pastas só são removidas quando estão vazias. Antes, um diretório sem `.mcd` no nível superior tinha todos os arquivos apagados com `unlink()` — inclusive `.sd2psx/Game2Folder.ini` quando o alvo era `.sd2psx`.
+- **Upload sem prender o `StorageLock`:** `/api/fs/put` toma o mutex apenas nas checagens iniciais e no commit (`.part` → `.bak` → rename). O recebimento do corpo roda fora do lock, então a tarefa que grava os saves do console não fica bloqueada durante um upload longo. O commit revalida se o cartão foi montado no meio do envio.
+- **`/api/fs/put` com percent-decode e limite de 8 MB:** caminhos codificados (`%20`) deixam de virar nomes literais e corpos acima de `MAX_FILE_SIZE` são recusados com `413`.
+- **`/api/status` com contagem correta:** `ps1_count`/`mc_count` percorrem `MemoryCards/PS1/<pasta>/*.mcd` (antes contavam na raiz do SD, sempre zero no layout novo) e `version` vem do app descriptor (`esp_ota_get_app_description()`), com fallback só para builds de host.
+- **Cartão com nome livre volta para `UserCards`:** `/api/card/create` e `/api/create` com nome que não é GameID criam `MemoryCards/PS1/UserCards/UserCards-<n>.mcd` e gravam o nome em `[ChannelName]`, em vez de criar uma pasta com o nome digitado.
+- **Testes:** `tests/host/run.sh` limpa `tests_sdcard/` antes de rodar (restos de execução interrompida mudavam o resultado), executa as guardas de tamanho de `test_ram.cc` e o suite fica verde (antes abortava em `test_web.cc:75`). Arquivos de teste avulsos e não compiláveis foram movidos para `tests/host/manual/` com explicação.
+
+### Alterado
+- **Documentação (`README.md`):** 475 pares (não 471), tabela de pais **compilada** em vez de parser de `/sdcard/multidisc.txt`, árvore `MemoryCards/PS1/<pasta>/<pasta>-<canal>.mcd` documentada, `default.mc` explicado como semente de migração (não é mais lido da raiz) e seção 6.2 com o roteiro de atualização da 1.4 via `tools/migrate_sd.py`.
+- **Pacote de release:** `multidisc.txt` removido de `sdcard_assets.zip` (não é lido pelo firmware e, na raiz do SD, só acende `legacy.detected`); `README.txt` reescrito com o layout novo e o caminho de upgrade.
+
+---
+
 ## [1.5.0] - 2026-10-28
 
 ### Adicionado
@@ -37,7 +57,7 @@ O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/p
 - **Flag de diretório (setor 0):** após commit do setor 0, o cartão volta a reportar `0x08` ("diretório não lido"), como o OpenMC original e o hardware real.
 - **Comandos MMCE `0x22`–`0x26`:** não são mais respondidos com sucesso falso (`0x20`) sem trocar nada; caem no caminho de comando não suportado.
 - **SSID de 32 caracteres:** o buffer de status foi ampliado para 33 bytes e as cópias para `wifi_config` deixaram de truncar em 31 caracteres.
-- **Documentação:** 240 MHz/350 ns e 475 títulos multi-disco foram corrigidos para 160 MHz/~525 ns nominais e 471 entradas ativas; o exemplo de multi-disco agora usa IDs presentes em `multidisc.txt`.
+- **Documentação:** 240 MHz/350 ns e 475 títulos multi-disco foram corrigidos para 160 MHz/~525 ns nominais e 475 pares ativos; o exemplo de multi-disco agora usa IDs presentes em `multidisc.txt`.
 - **`sdkconfig` raiz:** XTAL corrigido de 26 MHz para 40 MHz, alinhado ao `sdkconfig.esp32dev` usado pelo build PlatformIO.
 - **Testes host:** stubs de `esp_http_server.h`/`esp_ota_ops.h` atualizados (`stack_size`, `esp_app_desc_t`, `esp_ota_get_partition_description`), permitindo compilar `test_web`.
 
@@ -94,7 +114,7 @@ O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/p
 
 ### Adicionado
 - **Suporte Inteligente a Jogos Multi-Disco (Multi-Disc Parent Mapping):**
-  - Mapeamento de 471 títulos multi-disco através do arquivo `/sdcard/multidisc.txt` (o valor 475 em versões anteriores era incorreto).
+  - Mapeamento de 475 títulos multi-disco através da tabela de pais compilada em `src/storage/parent_db.cc` (o arquivo `multidisc.txt` é apenas a fonte dessa tabela).
   - Ao alternar para discos subsequentes (ex.: Disco 2 de *Final Fantasy*, *Metal Gear Solid* ou *Chrono Cross*), o sistema redireciona o arquivo montado para o cartão principal do Disco 1, mantendo o progresso unificado sem gerar cartões vazios indesejados.
 - **Topologia de Barramento Open-Drain (experimento revertido na 1.3):**
   - Reconfiguração das linhas `DATA` (MISO / GPIO 32) e `ACK` (GPIO 33) para modo dreno aberto com dreno ativo (`GPIO_MODE_INPUT_OUTPUT_OD`).

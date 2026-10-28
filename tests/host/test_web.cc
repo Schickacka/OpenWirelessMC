@@ -384,6 +384,95 @@ void test_35_asan_clean_execution()
   CHECK(sizeof(openmc::storage::LegacyProbeResult) <= 8);
 }
 
+
+// 36. /api/rename recusa trocar a extensao do cartao (.mcd -> .txt)
+void test_36_rename_rejects_extension_change()
+{
+  EnsureDirectoryPublic("MemoryCards/PS1/RENAME");
+  char card[kCardPathMax], other[kCardPathMax];
+  snprintf(card, sizeof(card), "%s/MemoryCards/PS1/RENAME/RENAME-1.mcd", base_path);
+  snprintf(other, sizeof(other), "%s/MemoryCards/PS1/RENAME/Outro.txt", base_path);
+  unlink(other);
+  CreateBlankFormattedCard(card);
+
+  httpd_req_t req;
+  const char *body = "old_path=MemoryCards/PS1/RENAME/RENAME-1.mcd&new_name=Outro.txt";
+  SetupMockReq(&req, "/api/rename", HTTP_POST, body);
+  api_rename_handler(&req);
+  CHECK(strcmp(g_http_mock.last_status, "400 Bad Request") == 0);
+
+  struct stat st;
+  CHECK(stat(card, &st) == 0);
+  CHECK(stat(other, &st) != 0);
+}
+
+// 37. /api/rename sem extensao no nome novo mantem a extensao original
+void test_37_rename_without_extension_appends_original()
+{
+  EnsureDirectoryPublic("MemoryCards/PS1/RENAME");
+  char card[kCardPathMax], renamed[kCardPathMax];
+  snprintf(card, sizeof(card), "%s/MemoryCards/PS1/RENAME/RENAME-1.mcd", base_path);
+  snprintf(renamed, sizeof(renamed), "%s/MemoryCards/PS1/RENAME/OutroNome.mcd", base_path);
+  unlink(renamed);
+  CreateBlankFormattedCard(card);
+
+  httpd_req_t req;
+  const char *body = "old_path=MemoryCards/PS1/RENAME/RENAME-1.mcd&new_name=OutroNome";
+  SetupMockReq(&req, "/api/rename", HTTP_POST, body);
+  api_rename_handler(&req);
+  CHECK(strstr(g_http_mock.response_body, "\"status\":\"ok\"") != NULL);
+
+  struct stat st;
+  CHECK(stat(renamed, &st) == 0);
+  CHECK(stat(card, &st) != 0);
+}
+
+// 38. /api/card/name recusa folder com separador ou ".."
+void test_38_card_name_rejects_invalid_folder()
+{
+  httpd_req_t req;
+  const char *body = "folder=..&channel=1&name=Fuga";
+  SetupMockReq(&req, "/api/card/name", HTTP_POST, body);
+  api_card_name_handler(&req);
+  CHECK(strcmp(g_http_mock.last_status, "400 Bad Request") == 0);
+
+  const char *body2 = "folder=SLUS-00421&channel=999&name=Fuga";
+  SetupMockReq(&req, "/api/card/name", HTTP_POST, body2);
+  api_card_name_handler(&req);
+  CHECK(req.content_len > 0);
+  CHECK(g_http_mock.error_code == HTTPD_400_BAD_REQUEST ||
+        strcmp(g_http_mock.last_status, "400 Bad Request") == 0);
+}
+
+// 39. /api/fs/delete nao apaga conteudo de pasta, nem das raizes
+void test_39_fs_delete_never_wipes_directory_contents()
+{
+  EnsureDirectoryPublic("MemoryCards/PS1/CHEIA");
+  char card[kCardPathMax];
+  snprintf(card, sizeof(card), "%s/MemoryCards/PS1/CHEIA/CHEIA-1.mcd", base_path);
+  CreateBlankFormattedCard(card);
+
+  httpd_req_t req;
+  SetupMockReq(&req, "/api/fs/delete?path=MemoryCards/PS1/CHEIA", HTTP_POST);
+  api_fs_delete_handler(&req);
+  CHECK(strcmp(g_http_mock.last_status, "400 Bad Request") == 0);
+  struct stat st;
+  CHECK(stat(card, &st) == 0);
+
+  // .sd2psx e raiz permitida: com conteudo dentro, tem que recusar e preservar.
+  EnsureDirectoryPublic(".sd2psx");
+  char ini[kCardPathMax];
+  snprintf(ini, sizeof(ini), "%s/.sd2psx/Game2Folder.ini", base_path);
+  FILE *f = fopen(ini, "wb");
+  CHECK(f != NULL);
+  if (f) { fputs("[PS1]\nSLUS-00592=SLUS-00421\n", f); fclose(f); }
+
+  SetupMockReq(&req, "/api/fs/delete?path=.sd2psx", HTTP_POST);
+  api_fs_delete_handler(&req);
+  CHECK(strcmp(g_http_mock.last_status, "400 Bad Request") == 0);
+  CHECK(stat(ini, &st) == 0);
+}
+
 int main()
 {
   strcpy(base_path, "tests_sdcard");
@@ -407,6 +496,10 @@ int main()
   printf("t33\n"); fflush(stdout); test_33_api_fs_delete_directory_rules();
   printf("t34\n"); fflush(stdout); test_34_api_fs_legacy_status_clears_live();
   printf("t35\n"); fflush(stdout); test_35_asan_clean_execution();
+  printf("t36\n"); fflush(stdout); test_36_rename_rejects_extension_change();
+  printf("t37\n"); fflush(stdout); test_37_rename_without_extension_appends_original();
+  printf("t38\n"); fflush(stdout); test_38_card_name_rejects_invalid_folder();
+  printf("t39\n"); fflush(stdout); test_39_fs_delete_never_wipes_directory_contents();
   printf("All test_web tests passed successfully.\n");
   return 0;
 }
