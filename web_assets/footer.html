@@ -396,6 +396,15 @@ function getRegionFromPrefix(prefix) {
   return "";
 }
 
+function sanitizeGameTitle(title) {
+  if (!title) return title;
+  var cleaned = title
+    .replace(/\s*[\(\[](?:disc|disk|disco)\s*(?:\d+|[a-z])[^\)\]]*[\)\]]/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return cleaned.length > 0 ? cleaned : title;
+}
+
 function resolveGameInfo(filename) {
   var t = I18N;
   if (!filename) return { title: t.generic_save, region: "" };
@@ -415,7 +424,7 @@ function resolveGameInfo(filename) {
 
     var title = GAME_DB[code];
     if (title) {
-      return { title: title, region: region, code: code };
+      return { title: sanitizeGameTitle(title), region: region, code: code };
     }
     return { title: code, region: region, code: code };
   }

@@ -6,6 +6,14 @@ O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/p
 
 ---
 
+## [1.5.2] - 2026-10-28
+
+### Adicionado
+- **Troca a Quente Dinâmica no Console (Bus Settle Delay de 2500 ms):** Ao alternar entre cartões virtuais via Web UI com o console ligado, o barramento SIO é desativado por 2500 ms antes da montagem da nova imagem. Isso garante a detecção confiável de desconexão física pela BIOS do PS1 (cujo ciclo de varredura ocorre a cada ~127 polls do controle / ~2,11 s), disparando o recarregamento instantâneo do diretório na tela de Memory Card sem exigir saída do menu.
+- **Higienização Visual de Títulos de Jogos Multi-Disco (sanitizeGameTitle):** Implementada remoção automática no frontend (web_assets/footer.html) de marcadores de disco como (Disc 1), (Disc 2), [Disc X] e equivalentes, mantendo a listagem limpa apenas com o nome principal do título e as tags de região ((US), (JP), (EU)). Compatibilidade integral com cache do navegador e preservação total das entradas originais em 	itles.db.
+
+---
+
 ## [1.5.1] - 2026-10-28
 
 ### Corrigido

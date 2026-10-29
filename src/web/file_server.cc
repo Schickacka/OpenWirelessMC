@@ -2439,7 +2439,7 @@ static bool IsProtectedFolder(const char *rel_path)
                 const esp_app_desc_t *app_desc = esp_ota_get_app_description();
                 const char *fw_version = (app_desc != NULL && app_desc->version[0] != '\0')
                                              ? app_desc->version
-                                             : "1.5.1";
+                                             : "1.5.2";
 
                 char *json_resp = (char *)malloc(2048);
                 if (!json_resp)

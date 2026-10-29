@@ -731,8 +731,15 @@ namespace openmc
         return false;
       }
 
+      bool was_mounted = (loaded_file_path[0] != '\0');
       sio::SetMemoryCardEmulation(false);
-      if (settle_ms > 0)
+      if (was_mounted)
+      {
+        ESP_LOGI(kLogPrefix, "Unmounting current card '%s' for clean bus disconnect.\n", loaded_file_path);
+        loaded_file_path[0] = '\0';
+        vTaskDelay(MsToTicks(2500));
+      }
+      else if (settle_ms > 0)
       {
         vTaskDelay(MsToTicks(settle_ms));
       }
@@ -1198,7 +1205,7 @@ namespace openmc
       if (strcasecmp(loaded_file_path, target_path) == 0)
       {
         sio::SetMemoryCardEmulation(false);
-        vTaskDelay(pdMS_TO_TICKS(250));
+        vTaskDelay(MsToTicks(2500));
         sio::memory_card::flag = sio::memory_card::Flags::kDirectoryUnread;
         sio::memory_card::GoIdle();
         sio::SetMemoryCardEmulation(true);

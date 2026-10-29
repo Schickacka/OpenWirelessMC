@@ -1,4 +1,4 @@
-OpenWirelessMC v1.5.1 - Release Package
+OpenWirelessMC v1.5.2 - Release Package
 =======================================
 Desenvolvido por Schickacka
 
@@ -7,9 +7,18 @@ Conteudo deste pacote
   bootloader.bin        gravacao serial (0x1000)
   partitions.bin        tabela dual-OTA (0x8000)
   ota_data_initial.bin  inicializa o seletor OTA (0xd000)
-  firmware_v1.5.bin     aplicacao (0x10000), versao 1.5.1
+  firmware_v1.5.bin     aplicacao (0x10000), versao 1.5.2
   sdcard_assets.zip     titles.db + config.txt para a raiz do cartao
   flash_windows.bat     gravador serial assistido
+
+O que mudou na 1.5.2 (sobre a 1.5.1)
+------------------------------------
+  - Troca a quente de Memory Cards em tempo real com settle delay de 2500 ms:
+    permite a deteccao confiavel pela BIOS do PS1 ao trocar de cartao via web,
+    recarregando os saves na tela instantaneamente sem sair do menu.
+  - Higienizacao visual automatica de titulos multi-disco na Web UI: titulos
+    como Chrono Cross (Disc 1) e Driver 2 (Disc 1) passam a ser exibidos de
+    forma limpa como Chrono Cross e Driver 2, mantendo as tags de regiao.
 
 O que mudou na 1.5.1 (sobre a 1.5.0)
 ------------------------------------
