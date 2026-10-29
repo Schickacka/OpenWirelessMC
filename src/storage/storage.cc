@@ -48,6 +48,7 @@ namespace openmc
     SemaphoreHandle_t storage_mutex = NULL;
 
     static char pending_game_id[64] = {0};
+    static char last_game_id[64] = {0};
 
     static void RememberPendingGameID(const char *game_id_str)
     {
@@ -83,6 +84,10 @@ namespace openmc
       TickType_t ticks = pdMS_TO_TICKS(ms);
       return ticks > 0 ? ticks : 1;
     }
+
+    // Janela com a ranhura fora do barramento para a BIOS perceber a troca de
+    // cartao. Vale para troca a quente (web) e para troca de disco/GameID.
+    static const uint32_t kHotSwapSettleMs = 2500;
 
     static bool MkdirP(const char *relative_path)
     {
@@ -737,7 +742,7 @@ namespace openmc
       {
         ESP_LOGI(kLogPrefix, "Unmounting current card '%s' for clean bus disconnect.\n", loaded_file_path);
         loaded_file_path[0] = '\0';
-        vTaskDelay(MsToTicks(2500));
+        vTaskDelay(MsToTicks(kHotSwapSettleMs));
       }
       else if (settle_ms > 0)
       {
@@ -1204,14 +1209,26 @@ namespace openmc
 
       if (strcasecmp(loaded_file_path, target_path) == 0)
       {
+        if (last_game_id[0] != '\0' && strcasecmp(last_game_id, clean_id) == 0)
+        {
+          // O console releu o GameID que ja esta montado (jogo reconsultando a
+          // ID ou reset com o mesmo disco): nada muda e nao ha motivo para
+          // tirar o cartao do barramento.
+          return true;
+        }
+
+        // GameID diferente caindo no mesmo cartao (troca de disco, ex.: RE2):
+        // desconecta a ranhura para a BIOS reler o diretorio.
+        strlcpy(last_game_id, clean_id, sizeof(last_game_id));
         sio::SetMemoryCardEmulation(false);
-        vTaskDelay(MsToTicks(2500));
+        vTaskDelay(MsToTicks(kHotSwapSettleMs));
         sio::memory_card::flag = sio::memory_card::Flags::kDirectoryUnread;
         sio::memory_card::GoIdle();
         sio::SetMemoryCardEmulation(true);
         return true;
       }
 
+      strlcpy(last_game_id, clean_id, sizeof(last_game_id));
       return LoadCardFromFile(target_path, sio::memory_card::memory_card_ram);
     }
 
@@ -1416,8 +1433,15 @@ namespace openmc
         ESP_LOGE(kLogPrefix, "UnloadCard: could not save pending changes, card kept mounted.\n");
         return false;
       }
+      bool was_mounted = (loaded_file_path[0] != '\0');
       sio::SetMemoryCardEmulation(false);
       loaded_file_path[0] = '\0';
+      if (was_mounted)
+      {
+        // Mesma janela da troca a quente: sem ela, "Desmontar" seguido de
+        // "Montar" volta em 250 ms e a BIOS nao percebe a desconexao.
+        vTaskDelay(MsToTicks(kHotSwapSettleMs));
+      }
       return true;
     }
 

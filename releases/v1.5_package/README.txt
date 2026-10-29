@@ -13,9 +13,9 @@ Conteudo deste pacote
 
 O que mudou na 1.5.2 (sobre a 1.5.1)
 ------------------------------------
-  - Troca a quente de Memory Cards em tempo real com settle delay de 2500 ms:
-    permite a deteccao confiavel pela BIOS do PS1 ao trocar de cartao via web,
-    recarregando os saves na tela instantaneamente sem sair do menu.
+  - Troca a quente de Memory Cards com settle delay de 2500 ms: a BIOS do PS1
+    detecta a desconexao ao trocar de cartao pela web e rele o diretorio sem
+    sair do menu. GameID repetido do cartao ja montado nao desconecta o barramento.
   - Higienizacao visual automatica de titulos multi-disco na Web UI: titulos
     como Chrono Cross (Disc 1) e Driver 2 (Disc 1) passam a ser exibidos de
     forma limpa como Chrono Cross e Driver 2, mantendo as tags de regiao.
