@@ -1,4 +1,4 @@
-OpenWirelessMC v1.5.2 - Release Package
+OpenWirelessMC v1.5.3 - Release Package
 =======================================
 Desenvolvido por Schickacka
 
@@ -7,9 +7,25 @@ Conteudo deste pacote
   bootloader.bin        gravacao serial (0x1000)
   partitions.bin        tabela dual-OTA (0x8000)
   ota_data_initial.bin  inicializa o seletor OTA (0xd000)
-  firmware_v1.5.bin     aplicacao (0x10000), versao 1.5.2
-  sdcard_assets.zip     titles.db + config.txt para a raiz do cartao
+  firmware_v1.5.bin     aplicacao (0x10000), versao 1.5.3
+  sdcard_assets.zip     default.mc + titles.db
   flash_windows.bat     gravador serial assistido
+
+O que mudou na 1.5.3 (sobre a 1.5.2)
+------------------------------------
+  - Montagem por GameID agora procura o cartao em todos os canais da pasta
+    do jogo (1..MaxChannels, com precedencia para o canal 1). Um save em
+    -2.mcd ou -3.mcd e montado em vez de um cartao novo em branco ser
+    criado ao lado.
+  - Arquivo de cartao com tamanho invalido (diferente de 128 KiB) vai para
+    <nome>.invalid em vez de ser sobrescrito.
+  - Mover cartao entre pastas preserva o numero do canal quando o destino
+    esta livre; mover para a propria pasta nao faz nada.
+  - Configuracao de rede (mode, ssid, password) passa a ficar na NVS do
+    ESP32 e sobrevive a formatar, trocar ou remover o cartao SD.
+  - /api/ota recusa firmware maior que a particao de OTA (HTTP 413) antes
+    de apagar qualquer setor e aborta a gravacao em caso de erro. A
+    interface bloqueia o arquivo antes de enviar.
 
 O que mudou na 1.5.2 (sobre a 1.5.1)
 ------------------------------------
@@ -42,15 +58,18 @@ O que mudou na 1.5.1 (sobre a 1.5.0)
 Layout do cartao MicroSD (v1.5)
 -------------------------------
   /sdcard/
-  |- config.txt                 (rede: veja o modelo em config.txt)
-  |- titles.db                  (23.465 titulos; usado pela interface web)
-  |- .sd2psx/Game2Folder.ini    (opcional: overrides de pasta, secao [PS1])
+  |- titles.db                     (23.465 titulos; usado pela interface web)
+  |- .sd2psx/Game2Folder.ini       (opcional: overrides de pasta, secao [PS1])
+  |- .sd2psx/config.txt.imported   (config.txt antigo, ja importado, se houver)
   |- MemoryCards/PS1/
-     |- BOOT/BootCard-1.mcd     (criado pelo firmware no primeiro boot)
+     |- BOOT/BootCard-1.mcd        (criado pelo firmware no primeiro boot)
      |- UserCards/UserCards-N.mcd
      |- SLUS-00421/SLUS-00421-1.mcd   (uma pasta por jogo, um canal por arquivo)
 
-  O firmware NAO le default.mc nem multidisc.txt da raiz. O default.mc e
+  A rede NAO fica mais no cartao: mode/ssid/password moram na NVS do ESP32.
+  Se existir um /sdcard/config.txt de versao antiga, ele e lido uma unica
+  vez, importado para a NVS e movido para .sd2psx/config.txt.imported.
+  O firmware NAO le default.mc nem multidisc.txt da raiz; o default.mc e
   apenas a semente usada pela migracao da 1.4 para criar o Boot Card.
 
 Gravacao serial (cabo USB)
@@ -68,8 +87,10 @@ Atualizacao via Web OTA (sem fio)
 Cartao MicroSD novo
 -------------------
   1. Formate em FAT32.
-  2. Copie titles.db e config.txt (do sdcard_assets.zip) para a raiz.
+  2. Copie titles.db para a raiz (o default.mc so serve para a migracao).
   3. Ligue o aparelho: ele cria MemoryCards/PS1/BOOT e monta o Boot Card.
+  4. Configure a rede pela interface web; nao ha arquivo de configuracao
+     no cartao.
 
 Vindo da v1.4 (layout antigo)
 -----------------------------
@@ -91,6 +112,9 @@ Vindo da v1.4 (layout antigo)
 Observacoes
 -----------
   - Nao ha autenticacao: use o aparelho apenas na sua rede.
-  - config.txt de fabrica sobe em modo AP (SSID WirelessMC). Troque a senha.
+  - Sem configuracao salva, o aparelho sobe em modo AP
+    (SSID WirelessMC / senha SenhaDificil!). Troque a senha.
+  - Se o modo client nao conectar apos 5 tentativas, ele cai no mesmo AP
+    de recuperacao, sem apagar a configuracao salva na NVS.
   - O cartao em uso no console nao pode ser apagado, sobrescrito ou
     renomeado pela interface; desmonte antes.
