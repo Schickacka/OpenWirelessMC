@@ -186,17 +186,16 @@ Recomenda-se a utilização de um conversor Step-Down chaveado (Buck Converter D
 ## 6. Estrutura do Cartão MicroSD
 
 1. Formate o cartão MicroSD no sistema de arquivos **FAT32**.
-2. Copie **dois** arquivos da pasta [`sdcard_assets/`](sdcard_assets/) para a raiz do cartão:
+2. Copie **um** arquivo da pasta [`sdcard_assets/`](sdcard_assets/) para a raiz do cartão:
    * `titles.db`: Banco de dados global de identificação de títulos (23.465 entradas), usado pela interface web.
-   * `config.txt`: Parâmetros de rede Wi-Fi (veja §6.1).
 3. Ligue o aparelho. O firmware cria sozinho a árvore de cartões:
 
 ```text
 /sdcard/
-├── config.txt
 ├── titles.db
 ├── .sd2psx/                         # opcional
-│   └── Game2Folder.ini              # overrides de pasta (seção [PS1])
+│   ├── Game2Folder.ini              # overrides de pasta (seção [PS1])
+│   └── config.txt.imported          # config.txt antigo, já importado (se houver)
 └── MemoryCards/
     └── PS1/
         ├── BOOT/
@@ -217,7 +216,18 @@ Recomenda-se a utilização de um conversor Step-Down chaveado (Buck Converter D
    nada. O `default.mc` **não** é usado na raiz: na 1.5 o cartão de boot é
    criado pelo firmware e o `default.mc` só serve de semente para a migração.
 
-### 6.1. Estrutura do `config.txt`
+### 6.1. Configuração de rede (NVS, sem arquivo no cartão)
+
+A partir desta versão o Wi-Fi **não** é mais lido da raiz do cartão: `mode`,
+`ssid` e `password` ficam na memória não volátil (NVS) do ESP32 e sobrevivem a
+trocar, formatar ou remover o SD. Configure pela interface web (aba de
+configurações) ou pelo Ponto de Acesso inicial.
+
+Se o aparelho ainda tiver um `/sdcard/config.txt` de uma versão antiga, ele é
+**importado automaticamente** no primeiro boot e movido para
+`.sd2psx/config.txt.imported` — nada é apagado. O formato antigo continua
+aceito nessa importação:
+
 ```ini
 # OpenWirelessMC - Parametros de Rede
 # Modos validos: client, ap, none
@@ -226,7 +236,10 @@ ssid=NomeDaSuaRede
 password=SuaSenhaWPA2
 ```
 
-Se o modo configurado for `client` e o roteador estiver inacessível, o sistema ativa automaticamente um Ponto de Acesso temporário de recuperação (**Rescue AP**: `SSID: WirelessMC` / `Senha: SenhaDificil!`) em memória RAM, sem sobrescrever o arquivo de configurações salvo no cartão.
+Se o modo configurado for `client` e o roteador estiver inacessível após 5
+tentativas, o sistema ativa automaticamente um Ponto de Acesso temporário de
+recuperação (**Rescue AP**: `SSID: WirelessMC` / `Senha: SenhaDificil!`) em
+memória RAM, sem sobrescrever a configuração salva na NVS.
 
 ---
 

@@ -2439,7 +2439,7 @@ static bool IsProtectedFolder(const char *rel_path)
                 const esp_app_desc_t *app_desc = esp_ota_get_app_description();
                 const char *fw_version = (app_desc != NULL && app_desc->version[0] != '\0')
                                              ? app_desc->version
-                                             : "1.5.2";
+                                             : "1.5.3";
 
                 char *json_resp = (char *)malloc(2048);
                 if (!json_resp)
@@ -2484,11 +2484,15 @@ static bool IsProtectedFolder(const char *rel_path)
                 if (probe.multidisc_txt) { l_off += snprintf(legacy_items + l_off, sizeof(legacy_items) - l_off, "%s\"multidisc.txt\"", first_item ? "" : ","); first_item = false; }
                 snprintf(legacy_items + l_off, sizeof(legacy_items) - l_off, "]");
 
+                const esp_partition_t *ota_part = esp_ota_get_next_update_partition(NULL);
+                unsigned int ota_max = (ota_part != NULL) ? (unsigned int)ota_part->size : 0;
+
                 int sn_res = snprintf(json_resp, 2048,
                     "{\"sd_total\":%llu,\"sd_free\":%llu,\"sd_mounted\":%s,\"heap_free\":%u,\"heap_min\":%u,\"ram_total\":%u,"
                     "\"wifi_mode\":%d,\"ssid\":\"%s\",\"rssi\":%d,\"ip\":\"%s\","
                     "\"loaded_file\":\"%s\",\"folder\":\"%s\",\"channel\":%u,\"uptime\":%lld,\"mc_count\":%d,\"ps1_count\":%d,\"ps2_count\":%d,"
                     "\"chip\":\"%s\",\"cores\":%d,\"cpu_freq\":%u,\"flash_size\":%u,\"sio_emulation\":%s,\"titles_version\":%u,\"version\":\"%s\","
+                    "\"ota_max\":%u,\"config_source\":\"%s\","
                     "\"legacy\":{\"detected\":%s,\"items\":%s}}",
                     (unsigned long long)total_bytes, (unsigned long long)free_bytes,
                     storage::ready ? "true" : "false",
@@ -2502,6 +2506,8 @@ static bool IsProtectedFolder(const char *rel_path)
                     sio::memory_card_enabled ? "true" : "false",
                     (unsigned int)titles_version,
                     fw_version,
+                    ota_max,
+                    storage::config::SourceName(),
                     probe.Any() ? "true" : "false", legacy_items);
 
                 if (sn_res < 0 || sn_res >= 2048)
@@ -2600,31 +2606,12 @@ static bool IsProtectedFolder(const char *rel_path)
                     return httpd_resp_sendstr(req, err_json);
                 }
 
-                if (!storage::ready)
+                if (!storage::config::SaveConfig(mode_val, ssid_val, pass_val))
                 {
                     httpd_resp_set_type(req, "application/json");
                     httpd_resp_set_status(req, "500 Internal Server Error");
-                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Cartao MicroSD nao inicializado\"}");
+                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Falha ao gravar configuracao na NVS\"}");
                 }
-
-                char cfg_path[CONFIG_FATFS_MAX_LFN + 16];
-                snprintf(cfg_path, sizeof(cfg_path), "%s/config.txt", storage::base_path);
-                FILE *f = fopen(cfg_path, "w");
-                if (!f)
-                {
-                    httpd_resp_set_type(req, "application/json");
-                    httpd_resp_set_status(req, "500 Internal Server Error");
-                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Falha ao abrir config.txt para escrita\"}");
-                }
-                int written = fprintf(f, "# OpenWirelessMC Configuration\nmode=%s\nssid=%s\npassword=%s\n", mode_val, ssid_val, pass_val);
-                if (fclose(f) != 0 || written < 0)
-                {
-                    httpd_resp_set_type(req, "application/json");
-                    httpd_resp_set_status(req, "500 Internal Server Error");
-                    return httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Falha ao gravar config.txt\"}");
-                }
-
-                storage::config::LoadConfig();
 
                 httpd_resp_set_type(req, "application/json");
                 return httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
@@ -2685,6 +2672,21 @@ static bool IsProtectedFolder(const char *rel_path)
                 ESP_LOGI(kLogPrefix, "OTA: Target partition: %s (offset: 0x%x, size: 0x%x)",
                          update_partition->label, update_partition->address, update_partition->size);
 
+                // Recusa antes de apagar um unico setor. Sem isto, uma imagem
+                // maior que a particao so falha depois de encher a flash.
+                if ((size_t)req->content_len > update_partition->size)
+                {
+                    ESP_LOGE(kLogPrefix, "OTA: image of %d bytes does not fit partition of %u bytes",
+                             req->content_len, (unsigned int)update_partition->size);
+                    char too_big[160];
+                    snprintf(too_big, sizeof(too_big),
+                             "{\"status\":\"error\",\"message\":\"Firmware maior que a particao de OTA (%u bytes)\"}",
+                             (unsigned int)update_partition->size);
+                    httpd_resp_set_type(req, "application/json");
+                    httpd_resp_set_status(req, "413 Payload Too Large");
+                    return httpd_resp_sendstr(req, too_big);
+                }
+
                 esp_ota_handle_t ota_handle = 0;
                 esp_err_t err = esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle);
                 if (err != ESP_OK)
@@ -2697,7 +2699,7 @@ static bool IsProtectedFolder(const char *rel_path)
                 char *ota_buf = (char *)malloc(4096);
                 if (!ota_buf)
                 {
-                    esp_ota_end(ota_handle);
+                    esp_ota_abort(ota_handle);
                     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA buffer allocation failed");
                     return ESP_FAIL;
                 }
@@ -2715,7 +2717,7 @@ static bool IsProtectedFolder(const char *rel_path)
                         }
                         ESP_LOGE(kLogPrefix, "OTA: Receive error: %d", received);
                         free(ota_buf);
-                        esp_ota_end(ota_handle);
+                        esp_ota_abort(ota_handle);
                         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA receive interrupted");
                         return ESP_FAIL;
                     }
@@ -2725,7 +2727,7 @@ static bool IsProtectedFolder(const char *rel_path)
                     {
                         ESP_LOGE(kLogPrefix, "OTA: esp_ota_write failed: 0x%x", err);
                         free(ota_buf);
-                        esp_ota_end(ota_handle);
+                        esp_ota_abort(ota_handle);
                         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA write flash failed");
                         return ESP_FAIL;
                     }

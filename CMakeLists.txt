@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.5)
 
 set(EXTRA_COMPONENT_DIRS ./src ./web_assets)
-set(PROJECT_VER "1.5.2")
+set(PROJECT_VER "1.5.3")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(openmc VERSION 1.5.2)
+project(openmc VERSION 1.5.3)

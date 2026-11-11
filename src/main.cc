@@ -95,22 +95,8 @@ namespace openmc
         // Load default settings first (AP mode, SSID=openmc)
         system::LoadDefaultSettings();
 
-        // Initialize SD card storage first so we can read /sdcard/config.txt if present
+        // Initialize SD card storage (needed by the SIO and by the config import)
         storage::Init();
-
-        // Try loading custom WiFi and mode settings from /sdcard/config.txt
-        if (storage::ready)
-        {
-            if (storage::config::LoadConfig())
-            {
-                ESP_LOGI(kLogPrefix, "Loaded custom settings from /sdcard/config.txt (mode=%d, ssid='%s')", 
-                         system::settings.wifi_mode, system::settings.ssid);
-            }
-            else
-            {
-                ESP_LOGI(kLogPrefix, "No /sdcard/config.txt found or invalid. Using default AP mode.");
-            }
-        }
 
         // =========================================================================
         // SIO & EMULAÇÃO DO MEMORY CARD INICIA IMEDIATAMENTE (ANTES DO WI-FI)!
@@ -133,6 +119,19 @@ namespace openmc
 
         gpio_set_direction(kSDPin_Detect, GPIO_MODE_INPUT);
         gpio_set_pull_mode(kSDPin_Detect, GPIO_PULLUP_ONLY);
+
+        // Config de rede: NVS (ou import unico do /sdcard/config.txt antigo).
+        // Carregada AQUI, depois que o memory card ja esta online: a NVS le a
+        // flash e nao pode atrasar o boot do SIO.
+        if (storage::config::LoadConfig())
+        {
+            ESP_LOGI(kLogPrefix, "Settings loaded (source=%s, mode=%d, ssid='%s')",
+                     storage::config::SourceName(), system::settings.wifi_mode, system::settings.ssid);
+        }
+        else
+        {
+            ESP_LOGI(kLogPrefix, "No stored settings found. Using default AP mode.");
+        }
 
         // Now start Wi-Fi according to config (either client or AP)
         if (system::settings.wifi_mode == wifi::Mode::kAcessPoint)

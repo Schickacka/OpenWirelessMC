@@ -1,5 +1,8 @@
 #include "storage/storage.h"
 #include "storage/game_lookup.h"
+#include "storage/config.h"
+#include "system/settings.h"
+#include "nvs.h"
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
@@ -215,6 +218,85 @@ void test_25_legacy_sd_leaves_old_mc_untouched()
   unlink(legacy_file);
 }
 
+// Item 1: o save pode estar em qualquer canal da pasta do jogo.
+void test_26_game_id_finds_card_on_channel_2()
+{
+  const char *folder = "SLUS-99999";
+  CHECK(EnsureDirectoryPublic("MemoryCards/PS1/SLUS-99999") == true);
+
+  char card_path[kCardPathMax];
+  snprintf(card_path, sizeof(card_path), "%s/MemoryCards/PS1/%s/%s-2.mcd", base_path, folder, folder);
+  CHECK(CreateBlankFormattedCard(card_path) == true);
+
+  SwitchToGameID("cdrom:\\SLUS_999.99;1");
+  CHECK(strstr(loaded_file_path, "SLUS-99999-2.mcd") != NULL);
+
+  // Nao pode ter criado um -1 em branco ao lado.
+  char first_path[kCardPathMax];
+  snprintf(first_path, sizeof(first_path), "%s/MemoryCards/PS1/%s/%s-1.mcd", base_path, folder, folder);
+  struct stat st;
+  CHECK(stat(first_path, &st) != 0);
+}
+
+// Item 3: mover cartao conserva o numero do canal quando o destino esta livre.
+void test_27_place_preserves_channel_number()
+{
+  char out_path[kCardPathMax];
+  unsigned ch = 0;
+
+  CHECK(MountCardChannel("UserCards", 5) == true);
+  CHECK(PlaceUserCard("UserCards", 5, "SLUS-88888", out_path, sizeof(out_path), &ch) == true);
+  CHECK(ch == 5);
+  CHECK(strstr(out_path, "SLUS-88888-5.mcd") != NULL);
+}
+
+// Item 6b: configuracao em NVS.
+void test_28_config_nvs_roundtrip()
+{
+  nvs_test_reset();
+
+  CHECK(openmc::storage::config::SaveConfig("client", "MinhaRede", "senha12345") == true);
+  CHECK(openmc::storage::config::LoadConfig() == true);
+  CHECK(openmc::storage::config::Source() == openmc::storage::config::kSourceNvs);
+  CHECK(strcmp(openmc::storage::config::SourceName(), "nvs") == 0);
+  CHECK(strcmp((const char *)openmc::system::settings.ssid, "MinhaRede") == 0);
+  CHECK(strcmp((const char *)openmc::system::settings.password, "senha12345") == 0);
+  CHECK(openmc::system::settings.wifi_mode == openmc::wifi::Mode::kClient);
+
+  // Entradas invalidas sao recusadas sem tocar na NVS.
+  CHECK(openmc::storage::config::SaveConfig("client", "", "senha12345") == false);
+  CHECK(openmc::storage::config::SaveConfig("modoerrado", "Rede", "senha12345") == false);
+  CHECK(openmc::storage::config::SaveConfig("client", "Rede", "curta") == false);
+
+  nvs_test_reset();
+}
+
+// Item 6b: importacao unica do config.txt antigo.
+void test_29_config_txt_import()
+{
+  nvs_test_reset();
+
+  FILE *f = fopen("test_config.txt", "w");
+  CHECK(f != NULL);
+  fprintf(f, "mode=client\nssid=RedeAntiga\npassword=senha12345\n");
+  fclose(f);
+
+  CHECK(openmc::storage::config::LoadConfig() == true);
+  CHECK(openmc::storage::config::Source() == openmc::storage::config::kSourceFile);
+  CHECK(strcmp((const char *)openmc::system::settings.ssid, "RedeAntiga") == 0);
+
+  // O arquivo saiu da raiz e foi para .sd2psx, sem ser apagado.
+  struct stat st;
+  CHECK(stat("test_config.txt", &st) != 0);
+  CHECK(stat("tests_sdcard/.sd2psx/config.txt.imported", &st) == 0);
+
+  // A importacao deixou a configuracao na NVS: o proximo boot vem de la.
+  CHECK(openmc::storage::config::LoadConfig() == true);
+  CHECK(openmc::storage::config::Source() == openmc::storage::config::kSourceNvs);
+
+  nvs_test_reset();
+}
+
 int main()
 {
   strcpy(base_path, "tests_sdcard");
@@ -264,6 +346,10 @@ int main()
   test_23_reject_path_traversal();
   test_24_probe_legacy_layout();
   test_25_legacy_sd_leaves_old_mc_untouched();
+  test_26_game_id_finds_card_on_channel_2();
+  test_27_place_preserves_channel_number();
+  test_28_config_nvs_roundtrip();
+  test_29_config_txt_import();
   printf("All test_main tests passed successfully.\n");
   return 0;
 }

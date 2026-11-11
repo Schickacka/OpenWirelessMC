@@ -10,7 +10,7 @@ O que faz:
   * copia firmware.bin, bootloader.bin e partitions.bin do build para
     releases/v1.5_package/ (e para releases/firmware_v1.5.bin);
   * gera o ota_data_initial.bin (0x2000 bytes 0xFF) se faltar;
-  * monta sdcard_assets.zip com config.txt, default.mc e titles.db
+  * monta sdcard_assets.zip com default.mc e titles.db
     (multidisc.txt NAO entra: o firmware nao o le e, na raiz do SD, ele
     apenas acende o aviso de layout antigo);
   * monta OpenWirelessMC_v1.5_Complete_Package.zip com o conteudo do pacote;
@@ -32,7 +32,7 @@ PKG_DIR = os.path.join(ROOT, "releases", "v1.5_package")
 REL_DIR = os.path.join(ROOT, "releases")
 ASSETS = os.path.join(ROOT, "sdcard_assets")
 OTA_BLANK = 0x2000
-SDCARD_FILES = ["config.txt", "default.mc", "titles.db"]
+SDCARD_FILES = ["default.mc", "titles.db"]
 BUILD_FILES = ["firmware.bin", "bootloader.bin", "partitions.bin"]
 
 
@@ -157,7 +157,7 @@ def main():
     print("versao do projeto: %s" % project_version())
     print("firmware_v1.5.bin: %d bytes" % os.path.getsize(fw))
     print("sha256:            %s" % sha256(fw))
-    print("sdcard_assets.zip: %d bytes (config.txt, default.mc, titles.db)" %
+    print("sdcard_assets.zip: %d bytes (default.mc, titles.db)" %
           os.path.getsize(os.path.join(PKG_DIR, "sdcard_assets.zip")))
     print("sha256:            %s" % sha256(os.path.join(REL_DIR, "OpenWirelessMC_v1.5_Complete_Package.zip")))
     print("pacote completo:   %s" % os.path.join(REL_DIR, "OpenWirelessMC_v1.5_Complete_Package.zip"))

@@ -847,6 +847,8 @@ function fetchStatus() {
       if (data.titles_version !== undefined) {
         syncGameDatabase(data.titles_version);
       }
+      // Limite real da particao de OTA, informado pelo firmware.
+      if (data.ota_max) { window.OWMC_OTA_MAX = data.ota_max; }
       // SD
       var badge = document.getElementById('sd-status-badge');
       var btnEjectSd = document.getElementById('btn-eject-sd');
@@ -1180,6 +1182,12 @@ function uploadOTA() {
   var file = fileInput.files[0];
   if (!file.name.toLowerCase().endsWith(".bin")) {
     alert("Arquivo inválido! O firmware deve ter extensão .bin!");
+    return;
+  }
+
+  var otaMax = window.OWMC_OTA_MAX || 1966080;
+  if (file.size > otaMax) {
+    alert("Firmware maior que a partição de OTA (" + formatBytes(otaMax) + ").\nArquivo: " + formatBytes(file.size) + ".\nEnvie o firmware_v1.5.bin do pacote oficial.");
     return;
   }
 

@@ -8,6 +8,8 @@
 #include "playstation/sio.h"
 #include "playstation/spi.h"
 #include "system/settings.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 
 int g_log_quiet = 0;
 const char *kLogPrefix = "T";
@@ -181,6 +183,7 @@ const esp_partition_t* esp_ota_get_next_update_partition(const esp_partition_t*)
 esp_err_t esp_ota_begin(const esp_partition_t*, size_t, esp_ota_handle_t*) { return ESP_FAIL; }
 esp_err_t esp_ota_write(esp_ota_handle_t, const void*, size_t) { return ESP_FAIL; }
 esp_err_t esp_ota_end(esp_ota_handle_t) { return ESP_FAIL; }
+esp_err_t esp_ota_abort(esp_ota_handle_t) { return ESP_FAIL; }
 esp_err_t esp_ota_set_boot_partition(const esp_partition_t*) { return ESP_FAIL; }
 esp_err_t esp_ota_get_partition_description(const esp_partition_t*, esp_app_desc_t*) { return ESP_FAIL; }
 
@@ -198,3 +201,90 @@ extern const unsigned char favicon_ico_data[] asm("_binary_favicon_ico_start");
 const unsigned char favicon_ico_data[] = "ico";
 extern const unsigned char favicon_ico_end_data[] asm("_binary_favicon_ico_end");
 const unsigned char favicon_ico_end_data[1] = {0};
+
+// ---------------------------------------------------------------------------
+// NVS simulado para os testes de host (config em NVS, sem ESP32).
+// ---------------------------------------------------------------------------
+namespace
+{
+  struct NvsEntry
+  {
+    char key[24];
+    char value[160];
+    bool used;
+  };
+  NvsEntry g_nvs_entries[8];
+}
+
+void nvs_test_reset(void)
+{
+  for (int i = 0; i < 8; i++)
+  {
+    g_nvs_entries[i].used = false;
+    g_nvs_entries[i].key[0] = '\0';
+    g_nvs_entries[i].value[0] = '\0';
+  }
+}
+
+esp_err_t nvs_flash_init(void) { return ESP_OK; }
+esp_err_t nvs_flash_erase(void) { nvs_test_reset(); return ESP_OK; }
+
+esp_err_t nvs_open(const char *name, nvs_open_mode_t mode, nvs_handle_t *out)
+{
+  (void)name;
+  (void)mode;
+  if (!out) return ESP_FAIL;
+  *out = 1;
+  return ESP_OK;
+}
+
+esp_err_t nvs_get_str(nvs_handle_t handle, const char *key, char *out_value, size_t *length)
+{
+  (void)handle;
+  if (!key || !length) return ESP_FAIL;
+  for (int i = 0; i < 8; i++)
+  {
+    if (g_nvs_entries[i].used && strcmp(g_nvs_entries[i].key, key) == 0)
+    {
+      size_t need = strlen(g_nvs_entries[i].value) + 1;
+      if (out_value == NULL)
+      {
+        *length = need;
+        return ESP_OK;
+      }
+      if (*length < need) return ESP_ERR_NVS_INVALID_LENGTH;
+      memcpy(out_value, g_nvs_entries[i].value, need);
+      *length = need;
+      return ESP_OK;
+    }
+  }
+  return ESP_ERR_NVS_NOT_FOUND;
+}
+
+esp_err_t nvs_set_str(nvs_handle_t handle, const char *key, const char *value)
+{
+  (void)handle;
+  if (!key || !value) return ESP_FAIL;
+  for (int i = 0; i < 8; i++)
+  {
+    if (g_nvs_entries[i].used && strcmp(g_nvs_entries[i].key, key) == 0)
+    {
+      strlcpy(g_nvs_entries[i].value, value, sizeof(g_nvs_entries[i].value));
+      return ESP_OK;
+    }
+  }
+  for (int i = 0; i < 8; i++)
+  {
+    if (!g_nvs_entries[i].used)
+    {
+      g_nvs_entries[i].used = true;
+      strlcpy(g_nvs_entries[i].key, key, sizeof(g_nvs_entries[i].key));
+      strlcpy(g_nvs_entries[i].value, value, sizeof(g_nvs_entries[i].value));
+      return ESP_OK;
+    }
+  }
+  return ESP_FAIL;
+}
+
+esp_err_t nvs_commit(nvs_handle_t handle) { (void)handle; return ESP_OK; }
+void nvs_close(nvs_handle_t handle) { (void)handle; }

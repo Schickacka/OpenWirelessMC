@@ -664,6 +664,50 @@ namespace openmc
       return (stat(out_path, &st) == 0 && st.st_size == (off_t)kCardSizeBytes);
     }
 
+    // Procura o cartao valido de MENOR canal na pasta do jogo (1, 2, ... max).
+    // O canal 1 continua tendo precedencia, entao o caso comum nao muda; isto
+    // so encontra o save quando ele esta em outro canal.
+    static bool FindAnyGameCard(const char *folder, char *out_path, size_t out_len, unsigned *out_channel)
+    {
+      unsigned max_channels = ReadFolderMaxChannels(folder, folder);
+      for (unsigned ch = kCardChannelMin; ch <= max_channels; ch++)
+      {
+        char candidate[kCardPathMax];
+        if (FindGameCard(NULL, folder, ch, candidate, sizeof(candidate)))
+        {
+          strlcpy(out_path, candidate, out_len);
+          if (out_channel)
+          {
+            *out_channel = ch;
+          }
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // Nunca abrir "wb" sobre um arquivo existente: o que esta la vai para
+    // <nome>.invalid, igual ao BootCard da 1.5.1.
+    static void MoveAsideInvalidFile(const char *path)
+    {
+      struct stat st;
+      if (stat(path, &st) != 0)
+      {
+        return;
+      }
+      char invalid_path[kCardPathMax + 16];
+      snprintf(invalid_path, sizeof(invalid_path), "%s.invalid", path);
+      unlink(invalid_path);
+      if (rename(path, invalid_path) == 0)
+      {
+        ESP_LOGW(kLogPrefix, "Existing file '%s' moved aside to '%s'\n", path, invalid_path);
+      }
+      else
+      {
+        ESP_LOGE(kLogPrefix, "Could not move '%s' aside (errno %d)\n", path, errno);
+      }
+    }
+
     static bool IsValidCardImage(const char *path)
     {
       struct stat st;
@@ -1190,7 +1234,8 @@ namespace openmc
       }
 
       char target_path[kCardPathMax];
-      if (!FindGameCard(clean_id, folder, 1, target_path, sizeof(target_path)))
+      unsigned target_channel = kCardChannelMin;
+      if (!FindAnyGameCard(folder, target_path, sizeof(target_path), &target_channel))
       {
         if (!EnsureGameFolder(folder))
         {
@@ -1200,11 +1245,18 @@ namespace openmc
         {
           return false;
         }
+        // Um .mcd de tamanho errado (copia interrompida) nao pode ser
+        // sobrescrito com "wb": vai para .invalid e um cartao novo entra no lugar.
+        MoveAsideInvalidFile(target_path);
         if (!CreateBlankFormattedCard(target_path))
         {
           ESP_LOGE(kLogPrefix, "SwitchToGameID: could not create '%s'\n", target_path);
           return false;
         }
+      }
+      else if (target_channel != kCardChannelMin)
+      {
+        ESP_LOGI(kLogPrefix, "SwitchToGameID: card of '%s' found on channel %u\n", clean_id, target_channel);
       }
 
       if (strcasecmp(loaded_file_path, target_path) == 0)
@@ -1265,6 +1317,14 @@ namespace openmc
         return false;
       }
 
+      // Mover para a propria pasta e no-op: preserva canal e rotulo.
+      if (strcasecmp(from_folder, target_folder) == 0)
+      {
+        strlcpy(out_path, src_path, out_path_len);
+        *out_channel = from_channel;
+        return true;
+      }
+
       if (!EnsureGameFolder(target_folder))
       {
         return false;
@@ -1274,7 +1334,15 @@ namespace openmc
       unsigned target_ch = 0;
       char dst_path[kCardPathMax];
 
-      for (unsigned ch = kCardChannelMin; ch <= max_channels; ch++)
+      // Regra: canal existente conserva o numero quando o destino esta livre.
+      if (from_channel >= kCardChannelMin && from_channel <= max_channels &&
+          BuildGameCardPath(target_folder, from_channel, ".mcd", dst_path, sizeof(dst_path)) &&
+          stat(dst_path, &st) != 0)
+      {
+        target_ch = from_channel;
+      }
+
+      for (unsigned ch = kCardChannelMin; target_ch == 0 && ch <= max_channels; ch++)
       {
         if (BuildGameCardPath(target_folder, ch, ".mcd", dst_path, sizeof(dst_path)))
         {

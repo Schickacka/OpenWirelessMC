@@ -6,6 +6,22 @@ O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/p
 
 ---
 
+## [1.5.3] - 2026-11-10
+
+### Corrigido
+- **Cartão em canal 2+ agora é montado:** `SwitchToGameID()` procurava apenas `-1.mcd`. Agora varre os canais da pasta (1..`MaxChannels`, com o canal 1 mantendo a precedência), então um save guardado em `-2`, `-3` etc. é encontrado e montado em vez de um cartão novo em branco ser criado ao lado.
+- **Cartão nunca é sobrescrito com `"wb"`:** se o caminho do cartão já existe com tamanho diferente de 128 KiB (cópia interrompida), o arquivo é movido para `<nome>.invalid` e um cartão novo é criado no lugar — mesmo tratamento que o `BootCard-1.mcd` recebeu na 1.5.1.
+- **Canal preservado ao mover cartão:** `PlaceUserCard()` conserva o número do canal de origem quando o destino está livre, em vez de renumerar sempre para o primeiro canal vago. Mover para a própria pasta virou no-op (antes renumerava e podia perder o rótulo).
+
+### Adicionado
+- **Configuração de rede na NVS:** `mode`, `ssid` e `password` passam a ser gravados na memória não volátil do ESP32, sobrevivendo a trocar, formatar ou remover o cartão SD. `/api/config` grava na NVS e `/api/status` informa `config_source` (`nvs`, `file` ou `default`). Um `/sdcard/config.txt` existente é importado **uma vez** no primeiro boot e movido para `.sd2psx/config.txt.imported`; nada é apagado.
+- **Limite de tamanho no OTA:** `/api/ota` recusa (`413`) imagens maiores que a partição de OTA antes de apagar qualquer setor, e usa `esp_ota_abort()` nos caminhos de erro. A interface consulta `ota_max` em `/api/status` e bloqueia o arquivo antes de enviar.
+
+### Alterado
+- **`sdcard_assets.zip` não inclui mais `config.txt`:** o cartão SD deixa de guardar SSID e senha. O arquivo continua aceito apenas para importação de versões antigas.
+
+---
+
 ## [1.5.2] - 2026-10-28
 
 ### Adicionado
